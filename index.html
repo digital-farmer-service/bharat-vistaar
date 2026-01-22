@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>MahaVistaar</title>
+    <meta name="description" content="Get information about farm practices, weather, mandi prices and government schemes" />
+    <meta name="author" content="MahaVistaar" />
+
+    <meta property="og:title" content="MahaVistaar - Your Farming Assistant" />
+    <meta property="og:description" content="Get information about farm practices, weather, mandi prices and government schemes" />
+    <meta property="og:image" content="https://vistaar.kenpath.ai/vistaarName.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="https://vistaar.kenpath.ai/vistaarName.png" />
+    
+    <!-- Preload critical images -->
+    <link rel="preload" as="image" href="/vistaarName.webp" type="image/webp" />
+    <link rel="preload" as="image" href="/vistaarName.png" type="image/png" />
+    
+    <script  type="text/javascript" src="js/jquery.min.js"></script>	
+    <script  type="text/javascript" src="js/auth-token-generator.min.js"></script> 
+    <script  type="text/javascript" src="js/telemetry.min.js"></script>
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
