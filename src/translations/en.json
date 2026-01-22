@@ -1,0 +1,122 @@
+{
+  "welcome": "Hello! I am your farm assistant. How can I help you today?",
+  "inputPlaceholder": "Ask your question...",
+  "startRecording": "Start recording",
+  "stopRecording": "Stop recording",
+  "send": "Send message",
+  "Listen": "Listen",
+  "selectLanguage": "Select language",
+  "disclaimerText": "AI-generated content. Please verify information independently.",
+  "questions": [
+    "What is PM-KISAN scheme and how can I apply for it?",
+    "Tell me about Kisan Credit Card scheme",
+    "I want to know about Pradhan Mantri Fasal Bima Yojana",
+    "What are the benefits of Soil Health Card scheme?",
+    "Can you explain PMKSY scheme to me?",
+    "What is the Sub-Mission on Agriculture Mechanization scheme?",
+    "How does the e-NAM platform work?",
+    "What government schemes are available for farmers?",
+    "I need information about seed authentication scheme",
+    "Tell me about the Agriculture Infrastructure Fund",
+    "How can I check my PM-KISAN payment status?",
+    "I want to know the status of my crop insurance claim",
+    "Can you check my Soil Health Card status?",
+    "What is the status of my grievance that I submitted last month?",
+    "Has my PMFBY claim been approved?",
+    "I haven't received my PM-KISAN installment, can you check why?",
+    "I want to file a complaint about not receiving my PM-KISAN payment",
+    "How do I submit a grievance about my insurance claim?",
+    "My Soil Health Card application is pending for months, I want to complain",
+    "I need to raise a grievance about scheme benefits not being received",
+    "My insurance claim was approved but I haven't received the money in my bank account",
+    "Why is there a delay in receiving my PM-KISAN payment?",
+    "I got a UTR number but money is not credited, what should I do?",
+    "How can I check my soil health card online?",
+    "What does my soil test report mean?",
+    "Which crops are suitable for my soil based on my Soil Health Card?",
+    "Can I get a loan if my previous crop failed and I couldn't repay?",
+    "Will defaulting on a loan affect my eligibility for government schemes?",
+    "What documents do I need to apply for Kisan Credit Card?",
+    "How much insurance coverage will I get for my wheat crop in Punjab?"
+  ],
+  "capabilities": [
+    "Answers are based only on standard university documents and crop SOPs.",
+    "You can ask about crop practices, pest/disease control, fertilizer schedules, and harvesting methods.",
+    "The system can give general agricultural advice but not personalized responses."
+  ],
+  "limitations": [
+    "Answers are based on documented best practices—not real-time weather, soil, or market data.",
+    "Region-specific and farm-specific recommendations are not available at this time.",
+    "Refer to the official SOP documents listed in the app for source references."
+  ],
+  "feedbackOptions": [
+    "Information is incorrect",
+    "Response is not helpful",
+    "Response is irrelevant to my question",
+    "Language or tone is inappropriate",
+    "Other issue"
+  ],
+  "feedbackTitle": "Provide Feedback",
+  "feedbackDescription": "We're sorry that response wasn't helpful. Please let us know what was wrong so we can improve.",
+  "feedbackSubmit": "Submit Feedback",
+  "feedbackCancel": "Cancel",
+  "feedbackPlaceholder": "Or tell us more about the issue...",
+  "appTitle": "Bharat VISTAAR - AI",
+  "settings": "Settings",
+  "copyMessage": "Copy message",
+  "likeMessage": "Like message",
+  "dislikeMessage": "Dislike message",
+  "theme": "Theme",
+  "askYourQuestion": "Ask Your Farm Assistant",
+  "sectionTitleAsk": "Ask",
+  "sectionTitleCapabilities": "Capabilities", 
+  "sectionTitleRemember": "Remember",
+  "toast": {
+    "locationPermissionDenied": {
+      "title": "Location Permission Denied",
+      "description": "Location access denied. Weather-related features will not be available."
+    },
+    "locationUnavailable": {
+      "title": "Location Unavailable",
+      "description": "Location access unavailable. Weather-related features will not be available."
+    },
+    "locationTimeout": {
+      "title": "Location Timeout",
+      "description": "The request to get your location timed out. Please try again."
+    },
+    "locationError": {
+      "title": "Location Error",
+      "description": "Location error. Weather-related features will not be available."
+    },
+    "locationNotSupported": {
+      "title": "Location Not Supported",
+      "description": "Your browser does not support geolocation. Weather-related features will not be available."
+    },
+    "feedbackThankYou": {
+      "title": "Thank you for your feedback! We're glad this response was helpful.",
+      "description": "We'll use your feedback to improve our responses."
+    },
+    "feedbackSubmitted": {
+      "title": "Thank you for your feedback. We'll use it to improve our responses.",
+      "description": "We'll use your feedback to improve our responses."
+    },
+    "messageCopied": {
+      "title": "Message Copied",
+      "description": "The message has been copied to your clipboard"
+    },
+    "errorPlayingAudio": {
+      "title": "Error Playing Audio",
+      "description": "There was an error playing the audio. Please try again."
+    },
+    "apiError": {
+      "description": "Sorry, there was an error processing your request. Please try again."
+    },
+    "apiEmptyResponse": {
+      "description": "Sorry, I couldn't process your request at this time."
+    },
+    "retrying": {
+      "description": "Connecting to server..."
+    },
+    "retryButton": "Retry"
+  }
+} 
