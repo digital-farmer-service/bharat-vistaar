@@ -12,7 +12,7 @@ on:
 
 env:
   IMAGE_NAME: bharat-vistaar-ui
-  GCP_REGION: ${{ vars.GCP_REGION || 'asia-south1' }}
+  GCP_REGION: ${{ vars.GCP_REGION }}
 
 jobs:
   build:
@@ -98,10 +98,10 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ env.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GCP_ARTIFACT_REPO }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GCP_ARTIFACT_REPO }}/${{ env.IMAGE_NAME }}:${{ steps.package-version.outputs.VERSION }}
-            ${{ env.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GCP_ARTIFACT_REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-            ${{ env.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GCP_ARTIFACT_REPO }}/${{ env.IMAGE_NAME }}:${{ steps.set-env-tag.outputs.ENV_TAG }}
+            ${{ vars.GCP_ARTIFACT_REPO }}/${{ env.IMAGE_NAME }}:latest
+            ${{ vars.GCP_ARTIFACT_REPO }}/${{ env.IMAGE_NAME }}:${{ steps.package-version.outputs.VERSION }}
+            ${{ vars.GCP_ARTIFACT_REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ vars.GCP_ARTIFACT_REPO }}/${{ env.IMAGE_NAME }}:${{ steps.set-env-tag.outputs.ENV_TAG }}
           platforms: linux/amd64
           cache-from: type=gha
           cache-to: type=gha,mode=max
