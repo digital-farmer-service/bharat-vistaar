@@ -12,13 +12,12 @@ on:
 
 env:
   IMAGE_NAME: bharat-vistaar-ui
-  GCP_REGION: ${{ secrets.GCP_REGION }}
-  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  GCP_ARTIFACT_REPO: ${{ secrets.GCP_ARTIFACT_REPO }}
+  GCP_REGION: ${{ vars.GCP_REGION }}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name }}
     
     steps:
       - name: Checkout repository
@@ -34,6 +33,8 @@ jobs:
 
       - name: Build project
         run: npm run build
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -46,6 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: github.event_name == 'push'
+    environment: ${{ github.ref_name }}
     
     permissions:
       contents: read
@@ -57,6 +59,17 @@ jobs:
       - name: Get version from package.json
         id: package-version
         run: echo "VERSION=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Set environment tag based on branch
+        id: set-env-tag
+        run: |
+          if [[ "${{ github.ref_name }}" == "bh-main" ]]; then
+            echo "ENV_TAG=prod" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref_name }}" == "bh-dev" ]]; then
+            echo "ENV_TAG=dev" >> $GITHUB_OUTPUT
+          else
+            echo "ENV_TAG=dev" >> $GITHUB_OUTPUT
+          fi
 
       - name: Download build artifacts
         uses: actions/download-artifact@v4
@@ -74,7 +87,9 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+        run: |
+          REGISTRY_HOST=$(echo "${{ vars.GCP_ARTIFACT_REPO }}" | cut -d'/' -f1)
+          gcloud auth configure-docker "$REGISTRY_HOST" --quiet
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -85,9 +100,10 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GCP_ARTIFACT_REPO }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GCP_ARTIFACT_REPO }}/${{ env.IMAGE_NAME }}:${{ steps.package-version.outputs.VERSION }}
-            ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GCP_ARTIFACT_REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ vars.GCP_ARTIFACT_REPO }}/${{ env.IMAGE_NAME }}:latest
+            ${{ vars.GCP_ARTIFACT_REPO }}/${{ env.IMAGE_NAME }}:${{ steps.package-version.outputs.VERSION }}
+            ${{ vars.GCP_ARTIFACT_REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ vars.GCP_ARTIFACT_REPO }}/${{ env.IMAGE_NAME }}:${{ steps.set-env-tag.outputs.ENV_TAG }}
           platforms: linux/amd64
           cache-from: type=gha
           cache-to: type=gha,mode=max
