@@ -42,7 +42,7 @@ interface AuthResponse {
 const JWT_STORAGE_KEY = "auth_jwt";
 
 class ApiService {
-  private apiUrl: string = (window as any).__ENV__?.VITE_API_URL || import.meta.env.VITE_API_URL || "https://dev-vistaar.da.gov.in";
+  private apiUrl: string = "";
   private locationData: LocationData | null = null;
   private currentSessionId: string | null = null;
   private axiosInstance: AxiosInstance;
