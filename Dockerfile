@@ -1,8 +1,9 @@
 # Stage 1: Build
-FROM node:18-alpine AS build
+FROM node:22-alpine AS build
 WORKDIR /usr/local/app
-COPY ./ /usr/local/app/
+COPY package.json ./
 RUN npm install
+COPY ./ ./
 RUN npm run build
 
 # Stage 2: Serve
