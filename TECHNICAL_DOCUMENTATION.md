@@ -18,6 +18,7 @@ The application follows a **Client-Side SPA (Single Page Application)** architec
 -   **Context API for Global State**: React Context is used for global concerns like Authentication (`AuthContext`), Language (`LanguageProvider`), and Audio (`AudioPlayerProvider`).
 -   **Singleton Pattern**: The API service (`api.ts`) is implemented as a singleton to manage a single Axios instance and shared configuration (auth tokens, retry logic).
 -   **Container/Presentational pattern**: Pages (e.g., `ChatPage`) act as containers, while components in `src/components` handle presentation and specific interactions.
+-   **JWT-based Authentication**: Uses `jose` library for JWT validation with a public key for token verification.
 
 ### Architecture Diagram
 
@@ -42,10 +43,9 @@ graph TD
     
     subgraph "External Systems"
         BackendAPI["OAN Backend"]
-        AuthService["Auth Service"]
     end
 
-    AuthContext -->|Verify| AuthService
+    AuthContext -->|JWT Validation| ApiService
     ApiService -->|HTTP/Stream| BackendAPI
     Telemetry -->|Metrics| BackendAPI
 ```
@@ -85,12 +85,13 @@ graph TD
 ## 4. Key Logic & Algorithms
 
 ### Authentication Logic (`AuthContext.tsx`)
-The system uses a flexible authentication model supporting both guest and verified users.
-1.  **Initialization**: On load, checks methods:
+The system uses a custom JWT-based authentication model supporting both guest and verified users.
+1.  **Initialization**: On load, checks for authentication via:
     *   **URL Param**: Checks for `?token=...`. If found, validates and stores it.
     *   **LocalStorage**: Checks for existing valid `auth_jwt`.
-    *   **Guest Fallback**: If no token, generates a placeholder "Guest" token or fetches a temporary one from `/api/token`.
-2.  **JWT Validation**: Uses `jose` library to verify the token signature against a hardcoded Public Key (PEM).
+    *   **Guest Fallback**: If no token, fetches a new token from `/chat/auth` API.
+2.  **JWT Validation**: Uses `jose` library to verify the token signature against a hardcoded RSA Public Key (PEM format).
+3.  **Token Storage**: Valid tokens are stored in localStorage with a 1-year expiration.
 
 ### Streaming Chat Response (`ChatInterface.tsx` & `api.ts`)
 To reduce perceived latency, the chat responses are streamed.
@@ -147,11 +148,11 @@ Obtains a temporary auth token for guest users.
 | **Tailwind CSS** | Utility-first styling. |
 | **Shadcn UI (@radix-ui)** | Accessible UI component primitives. |
 | **Axios** | HTTP client for API requests. |
-| **React Router Dom** | internal Routing. |
-| **TanStack Query** | Data fetching (though `api.ts` handles most direct calls). |
-| **Jose** | JWT operations (signing/verification). |
+| **React Router Dom** | Client-side routing. |
+| **Jose** | JWT verification and validation. |
 | **FingerprintJS** | Device identification for telemetry. |
 | **Lucide React** | Icons. |
+| **ua-parser-js** | Browser/device detection. |
 
 ---
 
