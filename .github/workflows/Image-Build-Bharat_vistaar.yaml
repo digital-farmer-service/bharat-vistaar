@@ -1,0 +1,53 @@
+name: Build bharat-vistaar Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      options:
+        description: "Select environment"
+        required: true
+        default: dev
+        type: choice
+        options:
+          - dev
+          - qa
+
+permissions:
+      id-token: write
+      contents: read
+
+jobs:
+  docker-image-build:
+    outputs:
+      image_tag: ${{ steps.export-image-tag.outputs.image_tag }}
+    runs-on: [self-hosted, beehyv-runner]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Login to Azure Container Registry
+        run: docker login -u biharkrishi -p ${{ secrets.ACR_PASSWORD }} biharkrishi.azurecr.io              
+
+      - name: Git commit_hash for service
+        run: |
+          commit_hash=$(git log -1 --pretty=format:%h)
+          echo "commit_hash=$commit_hash" >> $GITHUB_ENV
+
+      - name: npm version for service
+        run: |
+          npm_version=$(jq -r '.version' package.json)
+          echo "npm_version=$npm_version" >> $GITHUB_ENV
+
+      - name: Export image tag as env
+        id: export-image-tag
+        run: |
+            image_tag=v${{ env.npm_version }}-${{ env.commit_hash }}-${{ github.run_number }}
+            echo "image_tag=$image_tag" >> $GITHUB_ENV
+            echo "image_tag=$image_tag" >> $GITHUB_OUTPUT
+
+      - name: Build and Push Docker image for service
+        run: |
+          docker build -t biharkrishi.azurecr.io/biharkrishi/bharat-vistaar:${{ env.image_tag }} .
+          docker push biharkrishi.azurecr.io/biharkrishi/bharat-vistaar:${{ env.image_tag }}
+          docker rmi biharkrishi.azurecr.io/biharkrishi/bharat-vistaar:${{ env.image_tag }}

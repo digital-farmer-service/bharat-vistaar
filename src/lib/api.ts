@@ -8,6 +8,14 @@ import {
 } from "./retry-utils";
 import { API_RETRY_CONFIG } from "@/config/retry";
 
+declare global {
+  interface Window {
+    __ENV__?: {
+      VITE_API_URL?: string;
+    };
+  }
+}
+
 export interface LocationData {
   latitude: number;
   longitude: number;
@@ -42,7 +50,7 @@ interface AuthResponse {
 const JWT_STORAGE_KEY = "auth_jwt";
 
 class ApiService {
-  private apiUrl: string = "";
+  private apiUrl: string = window.__ENV__?.VITE_API_URL || "/bharat-vistaar";
   private locationData: LocationData | null = null;
   private currentSessionId: string | null = null;
   private axiosInstance: AxiosInstance;
@@ -271,7 +279,7 @@ class ApiService {
         headers: this.getAuthHeaders(),
       };
 
-      const response = await this.axiosInstance.get("/api/suggest/", config);
+      const response = await this.axiosInstance.get("api/suggest/", config);
       return response.data.map((item: string) => ({
         question: item,
       }));
@@ -310,7 +318,7 @@ class ApiService {
       };
 
       const response = await this.axiosInstance.post(
-        "/api/transcribe/",
+        "api/transcribe/",
         payload,
         config
       );
@@ -336,7 +344,7 @@ class ApiService {
     };
 
     return this.axiosInstance.post(
-      `/api/tts/`,
+      `api/tts/`,
       {
         session_id: sessionId,
         text: text,

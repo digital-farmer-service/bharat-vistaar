@@ -10,10 +10,14 @@ RUN npm run build
 FROM nginx:alpine
 WORKDIR /usr/share/nginx/html
 COPY --from=build /usr/local/app/dist .
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 # Add nginx config for SPA routing
 RUN rm /etc/nginx/conf.d/default.conf
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-EXPOSE 8081
+
+EXPOSE 80
+ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["nginx", "-g", "daemon off;"]
 
 # docker build --platform linux/amd64 -t vistaar-ui-service-latest .

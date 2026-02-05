@@ -22,39 +22,39 @@ const queryClient = new QueryClient();
 // Component to update the document title
 const TitleUpdater = () => {
   const { t } = useLanguage();
-  
+
   useEffect(() => {
     document.title = t("appTitle") as string;
   }, [t]);
-  
+
   return null;
 };
 
 // Component to track page views with Google Analytics
 const GoogleAnalyticsTracker = () => {
   const location = useLocation();
-  
+
   useEffect(() => {
     // Initialize Google Analytics on mount
     initGoogleAnalytics();
   }, []);
-  
+
   useEffect(() => {
     // Track page view on route change
     trackPageView(location.pathname + location.search, document.title);
   }, [location]);
-  
+
   return null;
 };
 
 const App = () => {
   const { isLoading } = useAuth();
-  
+
   // Show loading state while auth is initializing
   if (isLoading) {
     return <div className="bg-foreground/80 flex justify-center items-center h-screen text-background">Loading...</div>;
   }
-  
+
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider defaultTheme="system">
@@ -64,7 +64,7 @@ const App = () => {
             <TooltipProvider>
               <Toaster />
               <Sonner />
-              <BrowserRouter>
+              <BrowserRouter basename="/bharat-vistaar">
                 <GoogleAnalyticsTracker />
                 <Routes>
                   <Route path="/" element={<LandingPage />} />
