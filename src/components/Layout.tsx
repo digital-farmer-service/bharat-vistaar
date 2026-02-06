@@ -20,6 +20,7 @@ import {
 import { Menu, User, LogOut } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/components/LanguageProvider";
+import biharKrishiLogo from "@/assets/biharKrishiLogo.png";
 interface LayoutProps {
   children: ReactNode;
   showFooter?: boolean;
@@ -67,12 +68,22 @@ export function Layout({ children, showFooter = true }: LayoutProps) {
   return (
     <div className="flex flex-col min-h-screen">
       <header ref={headerRef} className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-md border-b border-border flex items-center justify-between p-3">
-        <div className="flex items-center gap-2">
+        {/* Left section - App Title */}
+        <div className="flex items-center gap-2 flex-1">
           <span className="font-bold text-lg text-primary">{t("appTitle").toString()}</span>
         </div>
         
-        {/* Desktop menu */}
-        <div className="hidden md:flex items-center gap-4">
+        {/* Center section - Bihar Krishi Logo */}
+        <div className="flex items-center justify-center flex-shrink-0">
+          <img 
+            src={biharKrishiLogo} 
+            alt="Bihar Krishi Logo" 
+            className="h-8 w-auto object-contain"
+          />
+        </div>
+        
+        {/* Right section - Desktop menu */}
+        <div className="hidden md:flex items-center gap-4 flex-1 justify-end">
           <LanguageSelector />
           <ThemeToggle />
           {/* {user?.authenticated && (
@@ -108,9 +119,9 @@ export function Layout({ children, showFooter = true }: LayoutProps) {
           )} */} 
         </div>
         
-        {/* Mobile menu */}
-        <div className="md:hidden flex items-center">
-        <ThemeToggle />
+        {/* Right section - Mobile menu */}
+        <div className="md:hidden flex items-center gap-2 flex-1 justify-end">
+          <ThemeToggle />
           <LanguageSelector />
 
           {/* <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
