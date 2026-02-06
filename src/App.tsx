@@ -64,7 +64,7 @@ const App = () => {
             <TooltipProvider>
               <Toaster />
               <Sonner />
-              <BrowserRouter basename="/bihar-krishi">
+              <BrowserRouter basename="/bharat-vistaar">
                 <GoogleAnalyticsTracker />
                 <Routes>
                   <Route path="/" element={<LandingPage />} />

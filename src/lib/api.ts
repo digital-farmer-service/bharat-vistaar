@@ -50,7 +50,7 @@ interface AuthResponse {
 const JWT_STORAGE_KEY = "auth_jwt";
 
 class ApiService {
-  private apiUrl: string = window.__ENV__?.VITE_API_URL || "https://dev-vistaar.da.gov.in";
+  private apiUrl: string = window.__ENV__?.VITE_API_URL || "/bharat-vistaar";
   private locationData: LocationData | null = null;
   private currentSessionId: string | null = null;
   private axiosInstance: AxiosInstance;

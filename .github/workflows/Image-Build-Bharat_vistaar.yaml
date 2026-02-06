@@ -20,7 +20,7 @@ jobs:
   docker-image-build:
     outputs:
       image_tag: ${{ steps.export-image-tag.outputs.image_tag }}
-    runs-on: [self-hosted, beehyv]
+    runs-on: [self-hosted, beehyv-runner]
 
     steps:
       - name: Checkout repository

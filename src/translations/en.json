@@ -1,7 +1,5 @@
 {
-  "welcome": "Namaste! I am your farm assistant. How can I help you today?",
-  "namaste": "Namaste",
-  "helpYouToday": "How can I help you today?",
+  "welcome": "Hello! I am your farm assistant. How can I help you today?",
   "inputPlaceholder": "Ask your question...",
   "startRecording": "Start recording",
   "stopRecording": "Stop recording",
@@ -9,7 +7,6 @@
   "Listen": "Listen",
   "selectLanguage": "Select language",
   "disclaimerText": "AI-generated content. Please verify information independently.",
-  "poweredBy": "Powered by Bharat Vistaar",
   "questions": [
     "What is PM-KISAN scheme and how can I apply for it?",
     "Tell me about Kisan Credit Card scheme",
@@ -64,7 +61,7 @@
   "feedbackSubmit": "Submit Feedback",
   "feedbackCancel": "Cancel",
   "feedbackPlaceholder": "Or tell us more about the issue...",
-  "appTitle": "Bihar Krishi - AI",
+  "appTitle": "Bharat VISTAAR - AI",
   "settings": "Settings",
   "copyMessage": "Copy message",
   "likeMessage": "Like message",

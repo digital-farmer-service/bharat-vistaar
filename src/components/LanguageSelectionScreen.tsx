@@ -27,7 +27,7 @@ export function LanguageSelectionScreen({ onLanguageSelected }: { onLanguageSele
       englishName: "Hindi",
       selectText: "हिंदी चुनें"
     },
-    // { code: "mr", nativeName: "मराठी", englishName: "Marathi", selectText: "मराठी निवडा" },
+    { code: "mr", nativeName: "मराठी", englishName: "Marathi", selectText: "मराठी निवडा" },
     // { code: "bn", nativeName: "বাংলা", englishName: "Bengali", selectText: "বাংলা নির্বাচন করুন" },
     // { code: "ta", nativeName: "தமிழ்", englishName: "Tamil", selectText: "தமிழைத் தேர்ந்தெடுக்கவும்" },
     // { code: "te", nativeName: "తెలుగు", englishName: "Telugu", selectText: "తెలుగు ఎంచుకోండి" },
@@ -50,7 +50,7 @@ export function LanguageSelectionScreen({ onLanguageSelected }: { onLanguageSele
     const audioFiles: Partial<Record<Language, string>> = {
       en: "/en.wav",
       hi: "/hi.wav",
-      // mr: "/mr.wav"
+      mr: "/mr.wav"
     };
 
     const filePath = audioFiles[languageCode];
