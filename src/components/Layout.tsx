@@ -176,7 +176,7 @@ export function Layout({ children, showFooter = true }: LayoutProps) {
         <footer ref={footerRef} className="fixed bottom-0 left-0 right-0 bg-background/80 backdrop-blur-md border-t border-border p-3">
           <div className="max-w-md mx-auto">
             <p className="text-xs text-center text-muted-foreground">
-              © {new Date().getFullYear()} Bharat Vistaar App
+              © {new Date().getFullYear()} Bihar Krishi App
             </p>
           </div>
         </footer>

@@ -1188,7 +1188,7 @@ export function ChatInterface() {
             )}
           >
             <div className="p-3 relative">
-              <div className="flex items-center gap-2 bg-background rounded-lg border border-border p-2">
+              <div className="flex items-center gap-2 bg-card backdrop-blur-sm rounded-lg border-2 border-border shadow-lg hover:shadow-xl hover:border-primary/50 transition-all ring-1 ring-border/50 p-2">
                 <AutoResizeTextarea
                   ref={textareaRef}
                   value={inputValue}
@@ -1265,10 +1265,13 @@ export function ChatInterface() {
                   </Button>
                 </div>
               </div>
-              <div className="text-xs text-muted-foreground text-center mt-1 flex items-center justify-center">
-                <Info className="h-3 w-3 mr-1 inline-block" />
-                {(t("disclaimerText") as string) ||
-                  "Bharat Vistaar is AI and can make mistakes. Please verify sources."}
+              <div className={`text-xs text-muted-foreground text-center mt-1 flex items-center justify-center ${isMobile ? 'flex-col' : 'flex-row'}`}>
+                <div className="flex items-center justify-center">
+                  <Info className="h-3 w-3 mr-1 inline-block" />
+                  <span>{t("disclaimerText") as string}</span>
+                </div>
+                {isMobile && <span>{t("poweredBy") as string}</span>}
+                {!isMobile && <span className="ml-1">{t("poweredBy") as string}</span>}
               </div>
             </div>
           </div>
@@ -1421,7 +1424,7 @@ export function ChatInterface() {
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-2 bg-background rounded-lg border border-border p-2">
+                <div className="flex items-center gap-2 bg-card backdrop-blur-sm rounded-lg border-2 border-border shadow-lg hover:shadow-xl hover:border-primary/50 transition-all ring-1 ring-border/50 p-2">
                   <AutoResizeTextarea
                     ref={textareaRef}
                     value={inputValue}
@@ -1480,10 +1483,10 @@ export function ChatInterface() {
                     <Send className="h-5 w-5" />
                   </Button>
                 </div>
-                <div className="text-[10px] text-muted-foreground text-center mt-2 flex items-center justify-center">
+                <div className="text-xs text-muted-foreground text-center mt-2 flex items-center justify-center">
                   <Info className="h-3 w-3 mr-1 inline-block" />
-                  {(t("disclaimerText") as string) ||
-                    "Bharat Vistaar is AI and can make mistakes. Please verify sources."}
+                  <span>{t("disclaimerText") as string}</span>
+                  <span className="ml-1">{t("poweredBy") as string}</span>
                 </div>
               </div>
             </div>

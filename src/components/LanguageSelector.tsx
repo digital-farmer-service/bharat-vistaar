@@ -20,7 +20,7 @@ export function LanguageSelector() {
     switch (lang) {
       case "en": return "English";
       case "hi": return "हिंदी";
-      case "mr": return "मराठी";
+      // case "mr": return "मराठी";
       // case "bn": return "বাংলা";
       // case "ta": return "தமிழ்";
       // case "te": return "తెలుగు";
@@ -66,7 +66,7 @@ export function LanguageSelector() {
         >
           हिंदी
         </DropdownMenuItem>
-        <DropdownMenuItem
+        {/* <DropdownMenuItem
           className={getActiveClass("mr")}
           onClick={() => {
             setLanguage("mr");
@@ -74,7 +74,7 @@ export function LanguageSelector() {
           }}
         >
           मराठी
-        </DropdownMenuItem>
+        </DropdownMenuItem> */}
       </DropdownMenuContent>
     </DropdownMenu>
   );

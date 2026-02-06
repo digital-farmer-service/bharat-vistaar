@@ -16,7 +16,7 @@ import mrTranslations from "../translations/mr.json";
 export type Language =
   | "en"  // English
   | "hi"  // Hindi
-  | "mr"; // Marathi
+  // | "mr"; // Marathi
   // | "bn"  // Bengali
   // | "ta"  // Tamil
   // | "te"  // Telugu
@@ -64,7 +64,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   const [language, setLanguage] = useState<Language>(() => {
     // Try to get language from localStorage
     const savedLanguage = localStorage.getItem("language");
-    return (savedLanguage as Language) || "hi";
+    return (savedLanguage as Language) || "en";
   });
   
   const [hasSelectedLanguage, setHasSelectedLanguage] = useState(false);
