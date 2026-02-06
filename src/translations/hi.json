@@ -61,7 +61,7 @@
   "feedbackSubmit": "प्रतिक्रिया सबमिट करें",
   "feedbackCancel": "रद्द करें",
   "feedbackPlaceholder": "या हमें इस मुद्दे के बारे में और अधिक बताएं...",
-  "appTitle": "भारत विस्तार - AI",
+  "appTitle": "बिहार कृषि - AI",
   "askYourQuestion": "आपका कृषि सहायक से पूछें",
   "sectionTitleAsk": "पूछें",
   "sectionTitleCapabilities": "क्षमताएँ", 
@@ -118,6 +118,6 @@
       "description": "सर्वर से कनेक्ट हो रहा है..."
     },
     "retryButton": "पुनः प्रयास करें",
-    "appTitle": "भारत विस्तार"
+    "appTitle": "बिहार कृषि"
   }
 } 

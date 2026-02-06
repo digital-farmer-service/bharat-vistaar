@@ -16,7 +16,7 @@ import mrTranslations from "../translations/mr.json";
 export type Language =
   | "en"  // English
   | "hi"  // Hindi
-  | "mr"; // Marathi
+  // | "mr"; // Marathi
   // | "bn"  // Bengali
   // | "ta"  // Tamil
   // | "te"  // Telugu
