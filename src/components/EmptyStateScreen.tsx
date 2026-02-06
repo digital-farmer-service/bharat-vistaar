@@ -1,6 +1,7 @@
 import { useLanguage } from "@/components/LanguageProvider";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useIsMobile } from "@/hooks/use-mobile";
+import welcomeImage from "/src/assets/welcome.png";
 
 interface EmptyStateScreenProps {
   setInputValue: (value: string) => void;
@@ -36,7 +37,7 @@ export function EmptyStateScreen({ setInputValue }: EmptyStateScreenProps) {
           }}
         >
           <img 
-            src="/welcome.png" 
+            src={welcomeImage} 
             alt="Welcome" 
             className="w-full h-full object-contain"
             style={{
