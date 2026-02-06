@@ -1,12 +1,15 @@
 {
-  "welcome": "Hello! I am your farm assistant. How can I help you today?",
+  "welcome": "Namaste! I am your farm assistant. How can I help you today?",
+  "namaste": "Namaste",
+  "helpYouToday": "How can I help you today?",
   "inputPlaceholder": "Ask your question...",
   "startRecording": "Start recording",
   "stopRecording": "Stop recording",
   "send": "Send message",
   "Listen": "Listen",
   "selectLanguage": "Select language",
-  "disclaimerText": "AI-generated content. Please verify information independently. Powered by Bharat Vistaar",
+  "disclaimerText": "AI-generated content. Please verify information independently.",
+  "poweredBy": "Powered by Bharat Vistaar",
   "questions": [
     "What is PM-KISAN scheme and how can I apply for it?",
     "Tell me about Kisan Credit Card scheme",
