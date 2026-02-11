@@ -22,6 +22,8 @@ import { useTts } from "@/hooks/use-tts";
 import { useLanguage } from "@/components/LanguageProvider";
 import { useAuth } from "@/contexts/AuthContext";
 
+import { useSearchParams } from "react-router-dom";
+
 interface ChatMessageProps {
   message: string;
   isUser: boolean;
@@ -66,6 +68,8 @@ export function ChatMessage({
   const { isPlaying, currentPlayingId, audioState, toggleAudio } = useTts();
   const { t } = useLanguage();
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const urlUsername = searchParams.get("username");
 
   const getInitials = (username: string) => {
     return username?.substring(0, 2).toUpperCase() || "U";
@@ -337,7 +341,7 @@ export function ChatMessage({
             <>
               <AvatarImage src="" alt="User" />
               <AvatarFallback>
-                {getInitials(user?.username || "U")}
+                {getInitials(urlUsername || user?.username || "U")}
               </AvatarFallback>
             </>
           ) : (
