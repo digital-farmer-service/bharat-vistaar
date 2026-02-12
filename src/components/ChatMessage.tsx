@@ -72,7 +72,23 @@ export function ChatMessage({
   const urlUsername = searchParams.get("username");
 
   const getInitials = (username: string) => {
-    return username?.substring(0, 2).toUpperCase() || "U";
+    if (!username) return "U";
+    
+    // Decode URL-encoded username (e.g., "Ravi%20Pratap" -> "Ravi Pratap")
+    const decodedName = decodeURIComponent(username);
+    
+    // Split by spaces and filter out empty strings
+    const words = decodedName.trim().split(/\s+/).filter(word => word.length > 0);
+    
+    if (words.length === 0) return "U";
+    
+    // If single word, take first 2 characters
+    if (words.length === 1) {
+      return words[0].substring(0, 2).toUpperCase();
+    }
+    
+    // If multiple words, take first letter of first two words
+    return (words[0].charAt(0) + words[1].charAt(0)).toUpperCase();
   };
   
   const handlePlayAudio = () => {
