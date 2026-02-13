@@ -1265,7 +1265,7 @@ export function ChatInterface() {
                   </Button>
                 </div>
               </div>
-              <div className={`text-xs text-muted-foreground text-center mt-1 flex items-center justify-center ${isMobile ? 'flex-col' : 'flex-row'}`}>
+              <div className={`text-xs text-muted-foreground text-center mt-6 flex items-center justify-center ${isMobile ? 'flex-col' : 'flex-row'}`}>
                 <div className="flex items-center justify-center">
                   <Info className="h-3 w-3 mr-1 inline-block" />
                   <span>{t("disclaimerText") as string}</span>
