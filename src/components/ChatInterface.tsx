@@ -1132,9 +1132,7 @@ export function ChatInterface() {
             transform: isKeyboardVisible
               ? `translateY(-${adjustedHeight}px)`
               : "none",
-            paddingBottom: isKeyboardVisible
-              ? "0"
-              : "env(safe-area-inset-bottom, 8px)",
+            paddingBottom: "0"
           }}
         >
           <div className="mx-3 mb-2">
