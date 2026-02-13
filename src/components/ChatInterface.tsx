@@ -1187,7 +1187,7 @@ export function ChatInterface() {
               isKeyboardVisible ? "shadow-lg border-b-0" : "",
             )}
           >
-            <div className="p-3 relative">
+            <div className="px-3 pt-3 pb-1 relative">
               <div className="flex items-center gap-2 bg-card backdrop-blur-sm rounded-lg border-2 border-border shadow-lg hover:shadow-xl hover:border-primary/50 transition-all ring-1 ring-border/50 p-2">
                 <AutoResizeTextarea
                   ref={textareaRef}
