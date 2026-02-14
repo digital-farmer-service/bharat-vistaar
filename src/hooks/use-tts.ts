@@ -103,13 +103,10 @@ export function useTts() {
           return;
         }
         pendingPlayRequests.current.delete(messageId);
-        // If streaming already started playing, let it continue and wait for natural end
-        // If not streaming, play from buffer
-        if (!streamingSupported) {
-          return playAudioFromBuffer(audioBuffer as ArrayBuffer, messageId);
-        }
-        // For streaming: audio is already playing, state will be updated when it ends naturally
-        return;
+        // Always play the audio from buffer to ensure it plays
+        // Whether streaming was used for progressive playback or not,
+        // we ensure the complete audio plays
+        return playAudioFromBuffer(audioBuffer as ArrayBuffer, messageId);
       }
       throw new Error('No audio data received');
     } catch (error) {
