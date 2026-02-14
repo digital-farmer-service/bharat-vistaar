@@ -126,9 +126,14 @@ export function useTts() {
 
   const toggleAudio = useCallback((text: string, messageId: string) => {
     if (isPlaying && currentMessageId === messageId) {
+      // Currently playing this message - stop it
       stopAudio();
     } else {
-      stopAudio();
+      // Not playing this message - start playing
+      // Only stop if something else is playing
+      if (isPlaying && currentMessageId && currentMessageId !== messageId) {
+        stopAudio();
+      }
       playAudio(text, messageId);
     }
   }, [isPlaying, currentMessageId, stopAudio, playAudio]);
