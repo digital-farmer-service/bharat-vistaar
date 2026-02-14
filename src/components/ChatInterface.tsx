@@ -20,6 +20,7 @@ import { AudioWaveform } from "@/components/AudioWaveform";
 import apiService from "@/lib/api";
 import { EmptyStateScreen } from "@/components/EmptyStateScreen";
 import { detectIndianLanguage } from "@/lib/utils";
+import BharatVistarLogo from "@/assets/BharatVistarLogo.png";
 import {
   Dialog,
   DialogContent,
@@ -1268,8 +1269,20 @@ export function ChatInterface() {
                   <Info className="h-3 w-3 mr-1 inline-block" />
                   <span>{t("disclaimerText") as string}</span>
                 </div>
-                {isMobile && <span>{t("poweredBy") as string}</span>}
-                {!isMobile && <span className="ml-1">{t("poweredBy") as string}</span>}
+                <div className={`flex items-center justify-center gap-1 ${isMobile ? 'mt-1' : 'ml-1'}`}>
+                  {language === 'en' ? (
+                    <>
+                      <span>{t("poweredBy") as string}</span>
+                      <img src={BharatVistarLogo} alt="Bharat Vistaar Logo" className="h-6
+                       w-auto inline-block" />
+                    </>
+                  ) : (
+                    <>
+                      <img src={BharatVistarLogo} alt="Bharat Vistaar Logo" className="h-6 w-auto inline-block" />
+                      <span>{t("poweredBy") as string}</span>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -1481,10 +1494,24 @@ export function ChatInterface() {
                     <Send className="h-5 w-5" />
                   </Button>
                 </div>
-                <div className="text-xs text-muted-foreground text-center mt-2 flex items-center justify-center">
-                  <Info className="h-3 w-3 mr-1 inline-block" />
-                  <span>{t("disclaimerText") as string}</span>
-                  <span className="ml-1">{t("poweredBy") as string}</span>
+                <div className="text-xs text-muted-foreground text-center mt-2 flex items-center justify-center flex-row">
+                  <div className="flex items-center justify-center">
+                    <Info className="h-3 w-3 mr-1 inline-block" />
+                    <span>{t("disclaimerText") as string}</span>
+                  </div>
+                  <div className="flex items-center justify-center gap-1 ml-1">
+                    {language === 'en' ? (
+                      <>
+                        <span>{t("poweredBy") as string}</span>
+                        <img src={BharatVistarLogo} alt="Bharat Vistaar Logo" className="h-6 w-auto inline-block" />
+                      </>
+                    ) : (
+                      <>
+                        <img src={BharatVistarLogo} alt="Bharat Vistaar Logo" className="h-6 w-auto inline-block" />
+                        <span>{t("poweredBy") as string}</span>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
