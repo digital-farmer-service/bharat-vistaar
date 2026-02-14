@@ -103,9 +103,22 @@ export function useTts() {
           return;
         }
         pendingPlayRequests.current.delete(messageId);
-        // Always play the audio from buffer to ensure it plays
-        // Whether streaming was used for progressive playback or not,
-        // we ensure the complete audio plays
+        
+        // If streaming was used, check if audio is actually playing
+        // If not (e.g., autoplay was blocked), fallback to playing from buffer
+        if (streamingSupported) {
+          // Give stream a moment to start playing, then check
+          await new Promise(resolve => setTimeout(resolve, 100));
+          if (!isPlaying) {
+            // Streaming didn't auto-play (browser blocked it), play from buffer
+            return playAudioFromBuffer(audioBuffer as ArrayBuffer, messageId);
+          }
+          // Audio is already playing via stream, let it continue
+          updateAudioState(messageId, 'playing');
+          return;
+        }
+        
+        // Streaming not supported, play from buffer
         return playAudioFromBuffer(audioBuffer as ArrayBuffer, messageId);
       }
       throw new Error('No audio data received');
