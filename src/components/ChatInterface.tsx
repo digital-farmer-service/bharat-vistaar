@@ -20,6 +20,7 @@ import { AudioWaveform } from "@/components/AudioWaveform";
 import apiService from "@/lib/api";
 import { EmptyStateScreen } from "@/components/EmptyStateScreen";
 import { detectIndianLanguage } from "@/lib/utils";
+import BharatVistarLogo from "@/assets/BharatVistarLogo.png";
 import {
   Dialog,
   DialogContent,
@@ -1132,9 +1133,7 @@ export function ChatInterface() {
             transform: isKeyboardVisible
               ? `translateY(-${adjustedHeight}px)`
               : "none",
-            paddingBottom: isKeyboardVisible
-              ? "0"
-              : "env(safe-area-inset-bottom, 8px)",
+            paddingBottom: "0"
           }}
         >
           <div className="mx-3 mb-2">
@@ -1187,7 +1186,7 @@ export function ChatInterface() {
               isKeyboardVisible ? "shadow-lg border-b-0" : "",
             )}
           >
-            <div className="p-3 relative">
+            <div className="px-3 pt-3 pb-1 relative">
               <div className="flex items-center gap-2 bg-card backdrop-blur-sm rounded-lg border-2 border-border shadow-lg hover:shadow-xl hover:border-primary/50 transition-all ring-1 ring-border/50 p-2">
                 <AutoResizeTextarea
                   ref={textareaRef}
@@ -1270,8 +1269,20 @@ export function ChatInterface() {
                   <Info className="h-3 w-3 mr-1 inline-block" />
                   <span>{t("disclaimerText") as string}</span>
                 </div>
-                {isMobile && <span>{t("poweredBy") as string}</span>}
-                {!isMobile && <span className="ml-1">{t("poweredBy") as string}</span>}
+                <div className={`flex items-center justify-center gap-1 ${isMobile ? 'mt-1' : 'ml-1'}`}>
+                  {language === 'en' ? (
+                    <>
+                      <span>{t("poweredBy") as string}</span>
+                      <img src={BharatVistarLogo} alt="Bharat Vistaar Logo" className="h-6
+                       w-auto inline-block" />
+                    </>
+                  ) : (
+                    <>
+                      <img src={BharatVistarLogo} alt="Bharat Vistaar Logo" className="h-6 w-auto inline-block" />
+                      <span>{t("poweredBy") as string}</span>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -1483,10 +1494,24 @@ export function ChatInterface() {
                     <Send className="h-5 w-5" />
                   </Button>
                 </div>
-                <div className="text-xs text-muted-foreground text-center mt-2 flex items-center justify-center">
-                  <Info className="h-3 w-3 mr-1 inline-block" />
-                  <span>{t("disclaimerText") as string}</span>
-                  <span className="ml-1">{t("poweredBy") as string}</span>
+                <div className="text-xs text-muted-foreground text-center mt-2 flex items-center justify-center flex-row">
+                  <div className="flex items-center justify-center">
+                    <Info className="h-3 w-3 mr-1 inline-block" />
+                    <span>{t("disclaimerText") as string}</span>
+                  </div>
+                  <div className="flex items-center justify-center gap-1 ml-1">
+                    {language === 'en' ? (
+                      <>
+                        <span>{t("poweredBy") as string}</span>
+                        <img src={BharatVistarLogo} alt="Bharat Vistaar Logo" className="h-6 w-auto inline-block" />
+                      </>
+                    ) : (
+                      <>
+                        <img src={BharatVistarLogo} alt="Bharat Vistaar Logo" className="h-6 w-auto inline-block" />
+                        <span>{t("poweredBy") as string}</span>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

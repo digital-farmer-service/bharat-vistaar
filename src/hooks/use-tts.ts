@@ -103,13 +103,23 @@ export function useTts() {
           return;
         }
         pendingPlayRequests.current.delete(messageId);
-        // If streaming already started playing, let it continue and wait for natural end
-        // If not streaming, play from buffer
-        if (!streamingSupported) {
-          return playAudioFromBuffer(audioBuffer as ArrayBuffer, messageId);
+        
+        // If streaming was used, check if audio is actually playing
+        // If not (e.g., autoplay was blocked), fallback to playing from buffer
+        if (streamingSupported) {
+          // Give stream a moment to start playing, then check
+          await new Promise(resolve => setTimeout(resolve, 100));
+          if (!isPlaying) {
+            // Streaming didn't auto-play (browser blocked it), play from buffer
+            return playAudioFromBuffer(audioBuffer as ArrayBuffer, messageId);
+          }
+          // Audio is already playing via stream, let it continue
+          updateAudioState(messageId, 'playing');
+          return;
         }
-        // For streaming: audio is already playing, state will be updated when it ends naturally
-        return;
+        
+        // Streaming not supported, play from buffer
+        return playAudioFromBuffer(audioBuffer as ArrayBuffer, messageId);
       }
       throw new Error('No audio data received');
     } catch (error) {
@@ -126,9 +136,14 @@ export function useTts() {
 
   const toggleAudio = useCallback((text: string, messageId: string) => {
     if (isPlaying && currentMessageId === messageId) {
+      // Currently playing this message - stop it
       stopAudio();
     } else {
-      stopAudio();
+      // Not playing this message - start playing
+      // Only stop if something else is playing
+      if (isPlaying && currentMessageId && currentMessageId !== messageId) {
+        stopAudio();
+      }
       playAudio(text, messageId);
     }
   }, [isPlaying, currentMessageId, stopAudio, playAudio]);
