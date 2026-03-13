@@ -1,6 +1,7 @@
 // --- V3 Telemetry Specification Alignment ---
 import FingerprintJS from "@fingerprintjs/fingerprintjs";
 import { UAParser } from "ua-parser-js";
+import apiService from "./api";
 
 // FingerprintJS initialization
 
@@ -75,7 +76,6 @@ const mapDeviceCode = (type = "") =>
 // Declare V3 Telemetry methods required for this implementation
 // Note: Implementations for all methods are assumed to exist in the global Telemetry object.
 declare let Telemetry: any;
-declare let AuthTokenGenerate: any;
 
 // Function to get the current host URL
 const getHostUrl = (): string => {
@@ -148,26 +148,25 @@ export const startTelemetry = async (
 
   initChatApiPerformanceObserver();
 
-  const key = "gyte5565fdbgbngfnhgmnhmjgm,jm,";
-  const secret = "gnjhgjugkk";
+  const apiUrl: string = window.__ENV__?.VITE_API_URL || "https://dev-vistaar.da.gov.in";
+  const token = apiService.getCurrentAuthToken() || "";
+
   const config = {
     pdata: {
-      id: "BharatVistaar",
+      id: "BiharKrishi",
       ver: "v0.1",
-      pid: "BharatVistaar",
+      pid: "BiharKrishi",
     },
-    channel: "BharatVistaar-" + getHostUrl(),
+    channel: "BiharKrishi-" + getHostUrl(),
     sid: sessionId,
     uid: userDetailsObj["preferred_username"] || "DEFAULT-USER",
     did: userDetailsObj["email"] || "DEFAULT-USER",
-    authtoken: "",
-    host: "/observability-service",
+    authtoken: token,
+    host: apiUrl + "/observability-service",
   };
 
   const startEdata = {};
   const options = {};
-  const token = AuthTokenGenerate.generate(key, secret);
-  config.authtoken = token;
   Telemetry.start(config, "content_id", "contetn_ver", startEdata, options);
 };
 
@@ -216,7 +215,7 @@ export const logQuestionEvent = (
     type: "CHOOSE",
     target: target,
     sid: sessionId,
-    channel: "BharatVistaar-" + getHostUrl(),
+    channel: "BiharKrishi-" + getHostUrl(),
   };
 
   Telemetry.response(questionData);
@@ -263,7 +262,7 @@ export const logResponseEvent = (
     type: "CHOOSE",
     target: target,
     sid: sessionId,
-    channel: "BharatVistaar-" + getHostUrl(),
+    channel: "BiharKrishi-" + getHostUrl(),
     values: [],
   };
 
@@ -294,7 +293,7 @@ export const logErrorEvent = (
     type: "CHOOSE",
     target: target,
     sid: sessionId,
-    channel: "BharatVistaar-" + getHostUrl(),
+    channel: "BiharKrishi-" + getHostUrl(),
   };
 
   Telemetry.response(errorData);
@@ -330,7 +329,7 @@ export const logFeedbackEvent = (
     type: "CHOOSE",
     target: target,
     sid: sessionId,
-    channel: "BharatVistaar-" + getHostUrl(),
+    channel: "BiharKrishi-" + getHostUrl(),
   };
 
   Telemetry.response(feedbackData);

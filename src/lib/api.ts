@@ -118,6 +118,10 @@ class ApiService {
     this.refreshAuthToken();
   }
 
+  getCurrentAuthToken(): string | null {
+    return this.getAuthToken();
+  }
+
   private getAuthHeaders(): Record<string, string> {
     // Always get fresh token before generating headers
     this.refreshAuthToken();
@@ -520,13 +524,19 @@ class ApiService {
     return this.currentSessionId;
   }
 
-  async fetchAuthToken(metadata: string): Promise<string> {
+  async fetchAuthToken(
+    metadata: string,
+    integrityToken: string = "",
+    clientCode: string = "bihar-krishi"
+  ): Promise<string> {
     try {
       // Don't use authentication headers for this call as we're getting the token
       const response = await axios.post<AuthResponse>(
         `${this.apiUrl}/api/token`,
         {
           metadata,
+          integrityToken,
+          clientCode,
         },
         {
           headers: {
