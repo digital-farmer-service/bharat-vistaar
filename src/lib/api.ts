@@ -530,12 +530,16 @@ class ApiService {
     clientCode: string = "bihar-krishi"
   ): Promise<string> {
     try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlIntegrityToken = urlParams.get("integrity_token");
+      const finalIntegrityToken = urlIntegrityToken || integrityToken;
+
       // Don't use authentication headers for this call as we're getting the token
       const response = await axios.post<AuthResponse>(
         `${this.apiUrl}/api/token`,
         {
           metadata,
-          integrityToken,
+          integrityToken: finalIntegrityToken,
           clientCode,
         },
         {
