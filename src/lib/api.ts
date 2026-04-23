@@ -1,4 +1,4 @@
-import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from "axios";
+import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse, InternalAxiosRequestConfig } from "axios";
 import { v4 as uuidv4 } from "uuid";
 import {
   retryWithBackoff,
@@ -12,6 +12,7 @@ declare global {
   interface Window {
     __ENV__?: {
       VITE_API_URL?: string;
+      VITE_BACKEND_AUTH_URL?: string;
     };
   }
 }
@@ -48,6 +49,22 @@ interface AuthResponse {
 
 // Constants
 const JWT_STORAGE_KEY = "auth_jwt";
+const TOKEN_REFRESH_THRESHOLD_MS = 5 * 60 * 1000; // refresh when within 5 min of expiry
+
+/**
+ * Decouples the backend auth call from ApiService.
+ * Change only this config object to switch endpoint or response shape.
+ */
+export interface BackendAuthAdapter {
+  /** Full URL of the backend auth endpoint */
+  endpoint: string;
+  /** Builds the POST body. Omit or return {} for an empty body. */
+  buildRequestBody?: () => Record<string, unknown>;
+  /** Extracts the raw token string from the response data */
+  extractToken: (responseData: unknown) => string;
+  /** Skip RS256 JWT validation (set true for non-JWT opaque tokens) */
+  skipJwtValidation?: boolean;
+}
 
 class ApiService {
   private apiUrl: string = window.__ENV__?.VITE_API_URL || "https://dev-vistaar.da.gov.in";
@@ -56,6 +73,10 @@ class ApiService {
   private axiosInstance: AxiosInstance;
   private authToken: string | null = null;
   private retryConfig: RetryConfig = API_RETRY_CONFIG;
+  private backendAuthAdapter: BackendAuthAdapter | null = null;
+  private isRefreshingToken = false;
+  private isRefreshingFor403 = false;
+  private pendingRequests403: Array<(token: string | null) => void> = [];
 
   constructor() {
     this.authToken = this.getAuthToken();
@@ -67,8 +88,49 @@ class ApiService {
       },
     });
 
-    // Log the token being used
-    // console.log('Using auth token:', this.authToken );
+    // 403 interceptor: refresh token once and retry the original request.
+    // Note: native fetch() paths (streaming) bypass this interceptor.
+    this.axiosInstance.interceptors.response.use(
+      (response) => response,
+      async (error) => {
+        const originalRequest = error.config as InternalAxiosRequestConfig & { _retried?: boolean };
+
+        if (error.response?.status !== 403 || originalRequest._retried) {
+          return Promise.reject(error);
+        }
+        originalRequest._retried = true;
+
+        if (this.isRefreshingFor403) {
+          return new Promise((resolve, reject) => {
+            this.pendingRequests403.push((newToken) => {
+              if (!newToken) { reject(error); return; }
+              originalRequest.headers["Authorization"] = `Bearer ${newToken}`;
+              resolve(this.axiosInstance(originalRequest));
+            });
+          });
+        }
+
+        this.isRefreshingFor403 = true;
+        try {
+          const newToken = await this.fetchAuthToken();
+          this.authToken = newToken;
+          this.axiosInstance.defaults.headers.common["Authorization"] = `Bearer ${newToken}`;
+          // Let AuthContext persist to localStorage
+          window.dispatchEvent(new CustomEvent("auth:token-refreshed", { detail: { token: newToken } }));
+          this.pendingRequests403.forEach((cb) => cb(newToken));
+          this.pendingRequests403 = [];
+          originalRequest.headers["Authorization"] = `Bearer ${newToken}`;
+          return this.axiosInstance(originalRequest);
+        } catch (refreshError) {
+          this.pendingRequests403.forEach((cb) => cb(null));
+          this.pendingRequests403 = [];
+          this.redirectToErrorPage();
+          return Promise.reject(refreshError);
+        } finally {
+          this.isRefreshingFor403 = false;
+        }
+      }
+    );
   }
 
   private getAuthToken(): string | null {
@@ -79,16 +141,29 @@ class ApiService {
       const parsedData = JSON.parse(tokenData);
       const now = new Date().getTime();
 
-      // Check if token is expired
+      // Hard expiry — token is dead
       if (now > parsedData.expiry) {
         localStorage.removeItem(JWT_STORAGE_KEY);
         return null;
+      }
+
+      // Near-expiry: signal background refresh but still return the valid token
+      if (now > parsedData.expiry - TOKEN_REFRESH_THRESHOLD_MS) {
+        this.scheduleProactiveRefresh();
       }
 
       return parsedData.token;
     } catch (error) {
       console.error("Error retrieving JWT for API calls:", error);
       return null;
+    }
+  }
+
+  private scheduleProactiveRefresh(): void {
+    if (this.isRefreshingToken) return; // debounce concurrent signals
+    this.isRefreshingToken = true;
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("auth:proactive-refresh"));
     }
   }
 
@@ -150,6 +225,18 @@ class ApiService {
    */
   getRetryConfig(): RetryConfig {
     return { ...this.retryConfig };
+  }
+
+  setBackendAuthAdapter(adapter: BackendAuthAdapter): void {
+    this.backendAuthAdapter = adapter;
+  }
+
+  getBackendAuthAdapter(): BackendAuthAdapter | null {
+    return this.backendAuthAdapter;
+  }
+
+  resetRefreshFlag(): void {
+    this.isRefreshingToken = false;
   }
 
   async sendUserQuery(
@@ -524,40 +611,21 @@ class ApiService {
     return this.currentSessionId;
   }
 
-  async fetchAuthToken(
-    metadata: string,
-    integrityToken: string = "",
-    clientCode: string = "bihar-krishi"
-  ): Promise<string> {
-    try {
-      const urlParams = new URLSearchParams(window.location.search);
-      const urlIntegrityToken = urlParams.get("integrity_token");
-      const finalIntegrityToken = urlIntegrityToken || integrityToken;
-
-      // Don't use authentication headers for this call as we're getting the token
-      const response = await axios.post<AuthResponse>(
-        `${this.apiUrl}/api/token`,
-        {
-          metadata,
-          integrityToken: finalIntegrityToken,
-          clientCode,
-        },
-        {
-          headers: {
-            "Content-Type": "application/json",
-          },
-        }
-      );
-
-      if (response.data && response.data.token) {
-        return response.data.token;
-      }
-
-      throw new Error("No token received from auth endpoint");
-    } catch (error) {
-      console.error("Error fetching auth token:", error);
-      throw error;
+  async fetchAuthToken(): Promise<string> {
+    if (!this.backendAuthAdapter) {
+      throw new Error("BackendAuthAdapter not configured. Call setBackendAuthAdapter() first.");
     }
+    const { endpoint, buildRequestBody, extractToken } = this.backendAuthAdapter;
+    const body = buildRequestBody ? buildRequestBody() : {};
+
+    // Use bare axios (not axiosInstance) — no auth header on auth call, avoids 403 interceptor loop
+    const response = await axios.post(endpoint, body, {
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const token = extractToken(response.data);
+    if (!token) throw new Error("BackendAuthAdapter.extractToken returned empty value");
+    return token;
   }
 }
 

@@ -1,7 +1,27 @@
 import { createContext, useContext, ReactNode, useState, useEffect, useCallback } from 'react';
 import { jwtVerify, importSPKI, JWTPayload } from 'jose';
 import apiService from '@/lib/api';
-import { getBrowserInfo } from '@/lib/utils';
+
+// Backend auth adapter — single location to change endpoint or response shape
+const BACKEND_AUTH_ENDPOINT =
+  window.__ENV__?.VITE_BACKEND_AUTH_URL ||
+  `${window.__ENV__?.VITE_API_URL || "https://dev-vistaar.da.gov.in"}/api/token`;
+
+apiService.setBackendAuthAdapter({
+  endpoint: BACKEND_AUTH_ENDPOINT,
+  buildRequestBody: () => ({}),
+  extractToken: (data: unknown) => {
+    const d = data as Record<string, unknown>;
+    // Handles common shapes: { token }, { access_token }, { data: { token } }
+    return (
+      (d?.token as string) ||
+      (d?.access_token as string) ||
+      ((d?.data as Record<string, unknown>)?.token as string) ||
+      ""
+    );
+  },
+  skipJwtValidation: false,
+});
 
 // Constants
 const JWT_STORAGE_KEY = 'auth_jwt';
@@ -93,29 +113,26 @@ hwIDAQAB
     });
   }, []);
 
-  // Fetch new JWT token from /chat/auth and store it
+  // Fetch new token from backend and store it
   const fetchAndStoreNewToken = useCallback(async (importedPublicKey: CryptoKey | null) => {
     try {
-      // Get browser info to send as meta parameter
-      const browserInfo = getBrowserInfo();
-      
-      // Call /chat/auth to get JWT token
-      const newToken = await apiService.fetchAuthToken(browserInfo);
-      
-      // Validate and store the new token
-      if (importedPublicKey) {
-        const result = await validateJWT(newToken, importedPublicKey);
+      const newToken = await apiService.fetchAuthToken();
+      const adapter = apiService.getBackendAuthAdapter();
+      const shouldValidate = !adapter?.skipJwtValidation && importedPublicKey;
+
+      if (shouldValidate) {
+        const result = await validateJWT(newToken, importedPublicKey!);
         if (result.isValid) {
           storeJWT(newToken);
+          apiService.updateAuthToken();
           createUserFromPayload(result.payload);
         } else {
-          console.error('Received invalid token from /chat/auth');
+          console.error('Received invalid token from backend auth endpoint');
           createGuestUser();
         }
       } else {
-        // If public key is not available, store token anyway
         storeJWT(newToken);
-        // Create a basic authenticated user
+        apiService.updateAuthToken();
         setUser({
           username: 'user',
           email: 'user@example.com',
@@ -124,7 +141,7 @@ hwIDAQAB
         });
       }
     } catch (error) {
-      console.error('Failed to fetch auth token from /chat/auth:', error);
+      console.error('Failed to fetch auth token:', error);
       createGuestUser();
     }
   }, [createGuestUser]);
@@ -193,6 +210,31 @@ hwIDAQAB
 
     initAuth();
   }, [publicKeyPEM, createGuestUser, fetchAndStoreNewToken]);
+
+  // Handle token refresh signals from ApiService
+  useEffect(() => {
+    const handleProactiveRefresh = async () => {
+      try {
+        await fetchAndStoreNewToken(publicKey);
+      } catch {
+        // Keep using the nearly-expired token until hard expiry
+      } finally {
+        apiService.resetRefreshFlag();
+      }
+    };
+
+    const handleTokenRefreshed = (event: Event) => {
+      const token = (event as CustomEvent<{ token: string }>).detail?.token;
+      if (token) storeJWT(token); // persist to localStorage; user state is unchanged
+    };
+
+    window.addEventListener("auth:proactive-refresh", handleProactiveRefresh);
+    window.addEventListener("auth:token-refreshed", handleTokenRefreshed);
+    return () => {
+      window.removeEventListener("auth:proactive-refresh", handleProactiveRefresh);
+      window.removeEventListener("auth:token-refreshed", handleTokenRefreshed);
+    };
+  }, [publicKey, fetchAndStoreNewToken]);
 
   // Create a user object from JWT payload
   const createUserFromPayload = (payload: JWTPayload | null) => {
