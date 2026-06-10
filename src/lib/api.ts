@@ -579,18 +579,29 @@ class ApiService {
     return out;
   }
 
-  private getUuidFromToken(): string {
+  // Returns a persistent user UUID — reads from JWT if present, otherwise
+  // generates once and stores in localStorage so it survives page reloads.
+  getUserUuid(): string {
     try {
-      if (!this.authToken) return '';
-      const payload = this.authToken.split('.')[1];
-      if (!payload) return '';
-      const b64 = payload.replace(/-/g, '+').replace(/_/g, '/');
-      const padded = b64 + '==='.slice((b64.length + 3) % 4);
-      const json = JSON.parse(atob(padded)) as Record<string, unknown>;
-      return (json.sub || json.uuid || json.userId || json.id || '') as string;
-    } catch {
-      return '';
-    }
+      if (this.authToken) {
+        const payload = this.authToken.split('.')[1];
+        if (payload) {
+          const b64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+          const padded = b64 + '==='.slice((b64.length + 3) % 4);
+          const json = JSON.parse(atob(padded)) as Record<string, unknown>;
+          const fromJwt = (json.sub || json.uuid || json.userId || json.id || '') as string;
+          if (fromJwt) return fromJwt;
+        }
+      }
+    } catch { /* fall through */ }
+
+    const stored = localStorage.getItem('becken_user_uuid');
+    if (stored) return stored;
+
+    // Generate and persist a new UUID for this device/browser
+    const generated = crypto.randomUUID();
+    localStorage.setItem('becken_user_uuid', generated);
+    return generated;
   }
 
   async sendBeckenQuery(params: {
@@ -600,26 +611,27 @@ class ApiService {
     mimeType?: string;
   }): Promise<{ responseText: string }> {
     const execute = async (): Promise<{ responseText: string }> => {
-      this.refreshAuthToken();
-      if (!this.validateAuth()) throw new Error('Authentication required');
-
       const body: Record<string, unknown> = {
-        requestInfo: {
-          apiId: 'Rainmaker',
-          authToken: this.authToken || '',
-          userInfo: { uuid: this.getUuidFromToken() },
+        RequestInfo: {
+          apiId: 'dfs-personalization',
+          ver: '1.0',
+          ts: Date.now(),
+          msgId: `msg-${crypto.randomUUID()}`,
+          userInfo: {
+            uuid: this.getUserUuid(),
+            roles: [{ code: 'CITIZEN', tenantId: 'br' }],
+          },
         },
         queryText: params.queryText,
-        sessionId: params.sessionId,
       };
 
       if (params.fileStoreId) body.fileStoreId = params.fileStoreId;
       if (params.mimeType) body.mimeType = params.mimeType;
 
-      const response = await this.axiosInstance.post(
-        '/dfs-personalization/chat/v1/_send',
+      const response = await axios.post(
+        `${this.apiUrl}/dfs-personalization/chat/v1/_send`,
         body,
-        { headers: this.getAuthHeaders() },
+        { headers: { 'Content-Type': 'application/json' } },
       );
 
       const responseText =

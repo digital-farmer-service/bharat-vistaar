@@ -2,35 +2,7 @@ import { createContext, useContext, ReactNode, useState, useEffect, useCallback 
 import { jwtVerify, importSPKI, JWTPayload } from 'jose';
 import apiService from '@/lib/api';
 
-// Backend auth adapter — single location to change endpoint or response shape.
-// Host comes from env (VITE_API_URL, e.g. https://dfsqa.beehyv.com); the auth
-// request is routed through our own backend, so it carries no auth token.
-const AUTH_TENANT_ID = "br";
-const BACKEND_AUTH_ENDPOINT =
-  window.__ENV__?.VITE_BACKEND_AUTH_URL ||
-  `${window.__ENV__?.VITE_API_URL || "https://dfsqa.beehyv.com"}/dfs-personalization/chat/token/v1/_fetch?tenantId=${AUTH_TENANT_ID}`;
-
-apiService.setBackendAuthAdapter({
-  endpoint: BACKEND_AUTH_ENDPOINT,
-  // No authToken is required to call our backend; the field is sent empty.
-  buildRequestBody: () => ({
-    RequestInfo: {
-      apiId: "Rainmaker",
-      authToken: "",
-    },
-  }),
-  // Response shape: { token, expiresAt, cached }
-  extractToken: (data: unknown) => {
-    const d = data as Record<string, unknown>;
-    return (
-      (d?.token as string) ||
-      (d?.access_token as string) ||
-      ((d?.data as Record<string, unknown>)?.token as string) ||
-      ""
-    );
-  },
-  skipJwtValidation: false,
-});
+// No backend auth endpoint — Becken (_send) does not require a token fetch.
 
 // Constants
 const JWT_STORAGE_KEY = 'auth_jwt';
@@ -143,150 +115,50 @@ hwIDAQAB
     });
   }, []);
 
-  // Fetch new token from backend and store it
-  const fetchAndStoreNewToken = useCallback(async (importedPublicKey: CryptoKey | null) => {
-    try {
-      const newToken = await apiService.fetchAuthToken();
-      const adapter = apiService.getBackendAuthAdapter();
-      const shouldValidate = !adapter?.skipJwtValidation && importedPublicKey;
-
-      if (shouldValidate) {
-        const result = await validateJWT(newToken, importedPublicKey!);
-        if (result.isValid) {
-          storeJWT(newToken);
-          apiService.updateAuthToken();
-          createUserFromPayload(result.payload);
-        } else {
-          console.error('Received invalid token from backend auth endpoint');
-          createGuestUser();
-        }
-      } else {
-        storeJWT(newToken);
-        apiService.updateAuthToken();
-        setUser({
-          username: 'user',
-          email: 'user@example.com',
-          authenticated: true,
-          isGuest: false,
-        });
-      }
-    } catch (error) {
-      console.error('Failed to fetch auth token:', error);
-      createGuestUser();
-    }
-  }, [createGuestUser]);
+  // Create a local session user (no backend token needed)
+  const createLocalUser = useCallback(() => {
+    setUser({
+      username: 'user',
+      email: '',
+      authenticated: true,
+      isGuest: false,
+    });
+  }, []);
 
   // Initialize auth state on component mount
   useEffect(() => {
     const initAuth = async () => {
       try {
         setIsLoading(true);
-        // Import the public key
-        const importedPublicKey = await importSPKI(publicKeyPEM, 'RS256');
-        setPublicKey(importedPublicKey);
 
-        // Check URL params first for new JWT (backward compatibility)
+        // Check URL params for a JWT passed from an external system
         const urlParams = new URLSearchParams(window.location.search);
         const tokenFromUrl = urlParams.get('token');
 
-        // If JWT exists in URL, validate and store it (backward compatibility)
         if (tokenFromUrl) {
-          if (importedPublicKey) {
+          try {
+            const importedPublicKey = await importSPKI(publicKeyPEM, 'RS256');
             const result = await validateJWT(tokenFromUrl, importedPublicKey);
             if (result.isValid) {
               storeJWT(tokenFromUrl);
               createUserFromPayload(result.payload);
-              // Clean up URL by removing the JWT parameter
               const newUrl = window.location.pathname + window.location.hash;
               window.history.replaceState({}, document.title, newUrl);
-            } else {
-              // Invalid token from URL, try to get new token
-              await fetchAndStoreNewToken(importedPublicKey);
+              return;
             }
-          } else {
-               console.error('Public key not loaded.');
-               await fetchAndStoreNewToken(importedPublicKey);
-          }
+          } catch { /* fall through to local user */ }
         }
-        // Otherwise, check for JWT in localStorage
-        else {
-          const storedToken = getStoredJWT();
-          if (storedToken) {
-             if (importedPublicKey) {
-              const result = await validateJWT(storedToken, importedPublicKey);
-              if (result.isValid) {
-                // Schedule renewal for the already-stored, still-valid token.
-                setTokenExpiry(getJwtExpiryMs(storedToken));
-                createUserFromPayload(result.payload);
-              } else {
-                // Token is invalid or expired, fetch new token from /chat/auth
-                localStorage.removeItem(JWT_STORAGE_KEY);
-                await fetchAndStoreNewToken(importedPublicKey);
-              }
-             } else {
-               console.error('Public key not loaded.');
-               await fetchAndStoreNewToken(importedPublicKey);
-             }
-          } else {
-            // No token found, fetch new token from /chat/auth
-            await fetchAndStoreNewToken(importedPublicKey);
-          }
-        }
-      } catch (error) {
-        console.error("Auth initialization error:", error);
-        createGuestUser();
+
+        // No backend token endpoint — create a local session user
+        createLocalUser();
       } finally {
         setIsLoading(false);
       }
     };
 
     initAuth();
-  }, [publicKeyPEM, createGuestUser, fetchAndStoreNewToken]);
+  }, [createLocalUser]);
 
-  // Handle token refresh signals from ApiService
-  useEffect(() => {
-    const handleProactiveRefresh = async () => {
-      try {
-        await fetchAndStoreNewToken(publicKey);
-      } catch {
-        // Keep using the nearly-expired token until hard expiry
-      } finally {
-        apiService.resetRefreshFlag();
-      }
-    };
-
-    const handleTokenRefreshed = (event: Event) => {
-      const token = (event as CustomEvent<{ token: string }>).detail?.token;
-      if (token) storeJWT(token); // persist to localStorage; user state is unchanged
-    };
-
-    window.addEventListener("auth:proactive-refresh", handleProactiveRefresh);
-    window.addEventListener("auth:token-refreshed", handleTokenRefreshed);
-    return () => {
-      window.removeEventListener("auth:proactive-refresh", handleProactiveRefresh);
-      window.removeEventListener("auth:token-refreshed", handleTokenRefreshed);
-    };
-  }, [publicKey, fetchAndStoreNewToken]);
-
-  // Proactively renew the token shortly before it expires. With short-lived
-  // (~15 min) tokens this covers idle tabs where no API call would otherwise
-  // trigger a refresh. The 403 interceptor in ApiService remains the fallback.
-  //
-  // Note: if the backend returns a cached token with an identical `exp`,
-  // setTokenExpiry stores the same value and this effect won't re-run, so the
-  // next timer isn't scheduled — the token then rides to hard expiry and the
-  // 403 interceptor renews it. Acceptable given that fallback.
-  useEffect(() => {
-    if (!tokenExpiry) return;
-    const delay = Math.max(
-      0,
-      tokenExpiry - new Date().getTime() - TOKEN_REFRESH_THRESHOLD_MS
-    );
-    const timerId = window.setTimeout(() => {
-      fetchAndStoreNewToken(publicKey);
-    }, delay);
-    return () => window.clearTimeout(timerId);
-  }, [tokenExpiry, publicKey, fetchAndStoreNewToken]);
 
   // Create a user object from JWT payload
   const createUserFromPayload = (payload: JWTPayload | null) => {
