@@ -5,9 +5,6 @@ import {
   ChevronRight,
   ImagePlus,
   X,
-  Loader2,
-  AlertCircle,
-  CheckCircle2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -58,9 +55,6 @@ export function ChatInterface() {
   // Image attachment states
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
-  const [imageUploadState, setImageUploadState] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle');
-  const [pendingFileStoreId, setPendingFileStoreId] = useState<string | null>(null);
-  const uploadTokenRef = useRef(0);
   const imageInputRef = useRef<HTMLInputElement>(null);
 
   // Suggestion related states
@@ -277,54 +271,33 @@ export function ChatInterface() {
   }, []);
 
   // Image attachment handlers
-  const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (imageInputRef.current) imageInputRef.current.value = "";
-
-    const token = ++uploadTokenRef.current;
-    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
-    const url = URL.createObjectURL(file);
     setSelectedImage(file);
+    const url = URL.createObjectURL(file);
     setImagePreviewUrl(url);
-    setImageUploadState('uploading');
-    setPendingFileStoreId(null);
-
-    try {
-      const id = await apiService.uploadToFilestore(file);
-      if (uploadTokenRef.current !== token) return;
-      setPendingFileStoreId(id);
-      setImageUploadState('done');
-    } catch {
-      if (uploadTokenRef.current !== token) return;
-      setImageUploadState('error');
-    }
+    if (imageInputRef.current) imageInputRef.current.value = "";
   };
 
   const handleRemoveImage = () => {
-    uploadTokenRef.current++;
     if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
     setSelectedImage(null);
     setImagePreviewUrl(null);
-    setImageUploadState('idle');
-    setPendingFileStoreId(null);
   };
 
   // Handle text message sending
   const handleSendMessage = async () => {
     const textToSend = inputValue.trim();
-    if ((textToSend === "" && !selectedImage) || isMessageLoading || imageUploadState === 'uploading') return;
+    if ((textToSend === "" && !selectedImage) || isMessageLoading) return;
 
-    // Capture before clearing; use the already-uploaded fileStoreId (text-only if upload failed)
+    const imageToUpload = selectedImage;
     const imageMimeType = selectedImage?.type;
     const imageUrlToShow = imagePreviewUrl;
-    const fileStoreId = imageUploadState === 'done' ? pendingFileStoreId || undefined : undefined;
 
-    uploadTokenRef.current++; // invalidate any late-resolving upload
     if (!inputPositioned) setInputPositioned(true);
     scrollToBottomOfMessages();
 
-    // Add user message (object URL stays valid — not revoked on send)
     addMessage(textToSend, true, { imageUrl: imageUrlToShow || undefined });
     const loadingMessageId = addMessage("", false, { isLoading: true });
 
@@ -332,8 +305,20 @@ export function ChatInterface() {
     setInputValue("");
     setSelectedImage(null);
     setImagePreviewUrl(null);
-    setImageUploadState('idle');
-    setPendingFileStoreId(null);
+
+    let fileStoreId: string | undefined;
+    if (imageToUpload) {
+      try {
+        fileStoreId = await apiService.uploadToFilestore(imageToUpload);
+      } catch (uploadError) {
+        console.error("Image upload failed:", uploadError);
+        toast({
+          title: t("toast.imageUploadFailed.title") as string || "Upload failed",
+          description: t("toast.imageUploadFailed.description") as string || "Could not upload image. Sending text only.",
+          variant: "yellow",
+        });
+      }
+    }
 
     try {
       await sendMessageToApi(textToSend, loadingMessageId, {
@@ -748,27 +733,15 @@ export function ChatInterface() {
             )}
           >
             <div className="px-3 pt-3 pb-1 relative">
-              {/* Image preview chip — flows above the input row */}
-              {selectedImage && (
-                <div className="mb-2 flex items-center gap-2 px-3 py-2 bg-muted/60 rounded-xl border border-border">
-                  <div className="relative h-9 w-9 flex-shrink-0">
-                    <img src={imagePreviewUrl!} alt="" className="h-9 w-9 rounded-lg object-cover" />
-                    {imageUploadState === 'uploading' && (
-                      <div className="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center">
-                        <Loader2 className="h-3.5 w-3.5 text-white animate-spin" />
-                      </div>
-                    )}
+              {/* Image preview */}
+              {imagePreviewUrl && (
+                <div className="mb-2 flex items-start gap-2">
+                  <div className="relative">
+                    <img src={imagePreviewUrl} alt="Attachment preview" className="h-16 w-16 rounded-lg object-cover border border-border" />
+                    <button onClick={handleRemoveImage} className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center" aria-label="Remove image">
+                      <X className="h-3 w-3" />
+                    </button>
                   </div>
-                  <span className="text-xs text-muted-foreground flex-1 truncate min-w-0">
-                    {imageUploadState === 'uploading' ? 'Uploading…' :
-                     imageUploadState === 'error' ? 'Upload failed — will send text only' :
-                     selectedImage.name}
-                  </span>
-                  {imageUploadState === 'error' && <AlertCircle className="h-3.5 w-3.5 text-destructive flex-shrink-0" />}
-                  {imageUploadState === 'done' && <CheckCircle2 className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />}
-                  <button onClick={handleRemoveImage} className="flex-shrink-0 p-1 rounded text-muted-foreground hover:text-foreground" aria-label="Remove image">
-                    <X className="h-3.5 w-3.5" />
-                  </button>
                 </div>
               )}
               <div className="flex items-center gap-2 bg-card backdrop-blur-sm rounded-lg border-2 border-border shadow-lg hover:shadow-xl hover:border-primary/50 transition-all ring-1 ring-border/50 p-2">
@@ -816,7 +789,7 @@ export function ChatInterface() {
                   </Button>
                   <Button
                     onClick={handleSendMessage}
-                    disabled={(inputValue.trim() === "" && !selectedImage) || isMessageLoading || imageUploadState === 'uploading'}
+                    disabled={(inputValue.trim() === "" && !selectedImage) || isMessageLoading}
                     variant="default"
                     size="icon"
                     className="rounded-full flex-shrink-0 h-9 w-9"
@@ -928,27 +901,15 @@ export function ChatInterface() {
                     </div>
                   </div>
                 )}
-                {/* Desktop image preview chip */}
-                {selectedImage && (
-                  <div className="mb-2 flex items-center gap-2 px-3 py-2 bg-muted/60 rounded-xl border border-border">
-                    <div className="relative h-9 w-9 flex-shrink-0">
-                      <img src={imagePreviewUrl!} alt="" className="h-9 w-9 rounded-lg object-cover" />
-                      {imageUploadState === 'uploading' && (
-                        <div className="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center">
-                          <Loader2 className="h-3.5 w-3.5 text-white animate-spin" />
-                        </div>
-                      )}
+                {/* Desktop image preview */}
+                {imagePreviewUrl && (
+                  <div className="mb-2 flex items-start gap-2">
+                    <div className="relative">
+                      <img src={imagePreviewUrl} alt="Attachment preview" className="h-16 w-16 rounded-lg object-cover border border-border" />
+                      <button onClick={handleRemoveImage} className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center" aria-label="Remove image">
+                        <X className="h-3 w-3" />
+                      </button>
                     </div>
-                    <span className="text-xs text-muted-foreground flex-1 truncate min-w-0">
-                      {imageUploadState === 'uploading' ? 'Uploading…' :
-                       imageUploadState === 'error' ? 'Upload failed — will send text only' :
-                       selectedImage.name}
-                    </span>
-                    {imageUploadState === 'error' && <AlertCircle className="h-3.5 w-3.5 text-destructive flex-shrink-0" />}
-                    {imageUploadState === 'done' && <CheckCircle2 className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />}
-                    <button onClick={handleRemoveImage} className="flex-shrink-0 p-1 rounded text-muted-foreground hover:text-foreground" aria-label="Remove image">
-                      <X className="h-3.5 w-3.5" />
-                    </button>
                   </div>
                 )}
                 <div className="flex items-center gap-2 bg-card backdrop-blur-sm rounded-lg border-2 border-border shadow-lg hover:shadow-xl hover:border-primary/50 transition-all ring-1 ring-border/50 p-2">
@@ -979,7 +940,7 @@ export function ChatInterface() {
                   </Button>
                   <Button
                     onClick={handleSendMessage}
-                    disabled={(inputValue.trim() === "" && !selectedImage) || isMessageLoading || imageUploadState === 'uploading'}
+                    disabled={(inputValue.trim() === "" && !selectedImage) || isMessageLoading}
                     variant="default"
                     size="icon"
                     className="rounded-full flex-shrink-0"

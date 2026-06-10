@@ -650,21 +650,15 @@ class ApiService {
   }
 
   async uploadToFilestore(file: File): Promise<string> {
-    this.refreshAuthToken();
-    if (!this.validateAuth()) throw new Error('Authentication required');
-
     const formData = new FormData();
     formData.append('file', file);
 
-    const response = await this.axiosInstance.post(
-      '/filestore/v1/files',
+    const response = await axios.post(
+      `${this.apiUrl}/filestore/v1/files`,
       formData,
       {
         params: { tenantId: 'br', module: 'pgr' },
-        headers: {
-          ...this.getAuthHeaders(),
-          'Content-Type': 'multipart/form-data',
-        },
+        headers: { 'Content-Type': 'multipart/form-data' },
       },
     );
 
