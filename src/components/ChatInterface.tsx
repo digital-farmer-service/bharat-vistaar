@@ -8,6 +8,8 @@ import {
   ChevronRight,
   Info,
   MicVocal,
+  ImagePlus,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -75,6 +77,7 @@ interface Message {
   canRetry?: boolean;
   originalUserMessage?: string;
   retryClickCount?: number;
+  imageUrl?: string;
 }
 
 interface ChatResponse {
@@ -117,6 +120,11 @@ export function ChatInterface() {
   const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [isMessageLoading, setIsMessageLoading] = useState(false); // Track if a message is currently loading
   const [showInlineVoice, setShowInlineVoice] = useState(false);
+
+  // Image attachment states
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   // Suggestion related states
   const [displayedSuggestion, setDisplayedSuggestion] = useState("");
@@ -426,28 +434,66 @@ export function ChatInterface() {
     }
   }, [messages, sessionId]);
 
+  // Image attachment handlers
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setSelectedImage(file);
+    const url = URL.createObjectURL(file);
+    setImagePreviewUrl(url);
+    // Reset input so same file can be re-selected
+    if (imageInputRef.current) imageInputRef.current.value = "";
+  };
+
+  const handleRemoveImage = () => {
+    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+    setSelectedImage(null);
+    setImagePreviewUrl(null);
+  };
+
   // Handle text message sending
   const handleSendMessage = async () => {
-    if (inputValue.trim() === "" || isMessageLoading) return;
+    const textToSend = inputValue.trim();
+    if ((textToSend === "" && !selectedImage) || isMessageLoading) return;
 
-    if (!inputPositioned) {
-      setInputPositioned(true);
-    }
+    // Capture attachment state before clearing
+    const imageToUpload = selectedImage;
+    const imageMimeType = selectedImage?.type;
+    const imageUrlToShow = imagePreviewUrl;
+
+    if (!inputPositioned) setInputPositioned(true);
     scrollToBottomOfMessages();
-    // Add user message
-    const userMessageId = addMessage(inputValue, true);
 
-    // Add loading message for bot
+    // Add user message with optional image
+    const userMessageId = addMessage(textToSend, true, {
+      imageUrl: imageUrlToShow || undefined,
+    });
     const loadingMessageId = addMessage("", false, { isLoading: true });
 
-    // Set message loading state
     setIsMessageLoading(true);
-
-    // Clear input
     setInputValue("");
+    setSelectedImage(null);
+    setImagePreviewUrl(null);
+
+    let fileStoreId: string | undefined;
+    if (imageToUpload) {
+      try {
+        fileStoreId = await apiService.uploadToFilestore(imageToUpload);
+      } catch (uploadError) {
+        console.error("Image upload failed:", uploadError);
+        toast({
+          title: t("toast.imageUploadFailed.title") as string || "Upload failed",
+          description: t("toast.imageUploadFailed.description") as string || "Could not upload image. Sending text only.",
+          variant: "yellow",
+        });
+      }
+    }
 
     try {
-      await sendMessageToApi(inputValue, loadingMessageId);
+      await sendMessageToApi(textToSend, loadingMessageId, {
+        fileStoreId,
+        mimeType: imageMimeType,
+      });
     } catch (error) {
       console.error("Error sending message:", error);
       updateMessage(loadingMessageId, {
@@ -457,7 +503,6 @@ export function ChatInterface() {
         errorTranslationKey: "toast.apiError.description",
       });
     } finally {
-      // Reset loading state when done
       setIsMessageLoading(false);
     }
   };
@@ -476,18 +521,12 @@ export function ChatInterface() {
     }
   };
 
-  // Core API communication function
+  // Core API communication function — routes to Becken chat backend
   const sendMessageToApi = async (
     text: string,
     loadingMessageId: string,
-    options?: { autoTts?: boolean },
+    options?: { autoTts?: boolean; fileStoreId?: string; mimeType?: string },
   ): Promise<{ messageId: string; finalText: string | null }> => {
-    // Determine target and source language
-    const targetLang = language;
-    let sourceLang = "en"; // Default source language
-    const detectedLanguage = detectIndianLanguage(text);
-    sourceLang = detectedLanguage.code;
-    console.log(sourceLang);
     const questionId = uuidv4();
     markServerRequestStart(questionId);
     await startTelemetry(sessionId, {
@@ -496,60 +535,28 @@ export function ChatInterface() {
     });
     logQuestionEvent(questionId, sessionId, text);
     endTelemetry();
-    // Use the current sessionId or create a new UUID if needed
+
     const currentSession = sessionId || createSession();
 
-    // Handle streaming response
-    let streamingText = "";
-    let retryAttemptCount = 0;
-    const maxRetries = apiService.getRetryConfig().maxAttempts;
-
     try {
-      // Set streaming state to true when we begin receiving message chunks
       updateMessage(loadingMessageId, {
-        isLoading: false,
-        isStreaming: true,
+        isLoading: true,
+        isStreaming: false,
         questionId,
         questionText: text,
       });
 
-      const response = (await apiService.sendUserQuery(
-        text,
-        currentSession,
-        sourceLang,
-        targetLang,
-        (chunk) => {
-          // Update the message with the streaming text
-          scrollToBottom();
-          streamingText += chunk;
-          updateMessage(loadingMessageId, {
-            text: streamingText,
-            isStreaming: true,
-            questionId,
-            questionText: text,
-          });
-        },
-        (attempt, error) => {
-          // Retry callback
-          retryAttemptCount = attempt;
-          console.log(`Retry attempt ${attempt}/${maxRetries}:`, error.message);
+      const response = await apiService.sendBeckenQuery({
+        queryText: text,
+        sessionId: currentSession,
+        fileStoreId: options?.fileStoreId,
+        mimeType: options?.mimeType,
+      });
 
-          // Update message to show retry status
-          const retryMessage = t("toast.retrying.description") as string;
-          updateMessage(loadingMessageId, {
-            text: retryMessage,
-            isLoading: true,
-            isStreaming: false,
-            retryAttempt: attempt,
-            maxRetryAttempts: maxRetries,
-          });
-        },
-      )) as ChatResponse;
-
-      if (response && response.response) {
-        // Final update with complete response - set streaming to false
+      if (response.responseText) {
         updateMessage(loadingMessageId, {
-          text: response.response,
+          text: response.responseText,
+          isLoading: false,
           isStreaming: false,
           questionId,
           questionText: text,
@@ -559,28 +566,22 @@ export function ChatInterface() {
           preferred_username: user?.username || "default-username",
           email: user?.email || "default-email",
         });
-        // logResponseEvent will be called from useEffect callback after paint timing is recorded
-        // ← ADD THIS LINE:
-        // logResponseEvent(questionId, sessionId, text, response.response);
         await endTelemetryWithWait();
         delete window.__RESPONSE_TIMERS__[questionId];
         if (options?.autoTts) {
-          // Auto play TTS for the final response
-          playAudio(response.response, loadingMessageId);
+          playAudio(response.responseText, loadingMessageId);
         }
-        // Start suggestion refresh cycle after the message is sent
         startSuggestionRefreshCycle(currentSession);
-        return { messageId: loadingMessageId, finalText: response.response };
+        return { messageId: loadingMessageId, finalText: response.responseText };
       } else {
-        // Handle empty response
         updateMessage(loadingMessageId, {
           text: "",
           isErrorMessage: true,
           isStreaming: false,
+          isLoading: false,
           questionId,
           questionText: text,
           errorTranslationKey: "toast.apiEmptyResponse.description",
-          isLoading: false,
           canRetry: true,
           originalUserMessage: text,
         });
@@ -588,14 +589,12 @@ export function ChatInterface() {
           preferred_username: user?.username || "default-username",
           email: user?.email || "default-email",
         });
-        logErrorEvent(questionId, sessionId, "Empty response from API");
+        logErrorEvent(questionId, sessionId, "Empty response from Becken");
         await endTelemetry();
         return { messageId: loadingMessageId, finalText: null };
       }
     } catch (error) {
-      console.error("Error sending query to API:", error);
-      // Handle error response with clear error message
-      const errorMessage = t("toast.apiError.description") as string;
+      console.error("Error sending query to Becken:", error);
       updateMessage(loadingMessageId, {
         text: "",
         isLoading: false,
@@ -603,13 +602,8 @@ export function ChatInterface() {
         errorTranslationKey: "toast.apiError.description",
         canRetry: true,
         originalUserMessage: text,
-        retryAttempt: retryAttemptCount,
-        maxRetryAttempts: maxRetries,
       });
-
-      // Force UI refresh for error messages
       forceUIRefresh();
-
       await startTelemetry(sessionId, {
         preferred_username: user?.username || "default-username",
         email: user?.email || "default-email",
@@ -617,8 +611,7 @@ export function ChatInterface() {
       logErrorEvent(
         questionId,
         sessionId,
-        "API error: " +
-          (error instanceof Error ? error.message : String(error)),
+        "Becken error: " + (error instanceof Error ? error.message : String(error)),
       );
       await endTelemetry();
       return { messageId: loadingMessageId, finalText: null };
@@ -1127,6 +1120,14 @@ export function ChatInterface() {
 
     return (
       <>
+        {/* Hidden image file input */}
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleImageSelect}
+        />
         <div
           className="fixed left-0 right-0 bottom-0 z-20 flex flex-col"
           style={{
@@ -1187,6 +1188,25 @@ export function ChatInterface() {
             )}
           >
             <div className="px-3 pt-3 pb-1 relative">
+              {/* Image preview strip */}
+              {imagePreviewUrl && (
+                <div className="mb-2 flex items-start gap-2">
+                  <div className="relative">
+                    <img
+                      src={imagePreviewUrl}
+                      alt="Attachment preview"
+                      className="h-16 w-16 rounded-lg object-cover border border-border"
+                    />
+                    <button
+                      onClick={handleRemoveImage}
+                      className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center"
+                      aria-label="Remove image"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className="flex items-center gap-2 bg-card backdrop-blur-sm rounded-lg border-2 border-border shadow-lg hover:shadow-xl hover:border-primary/50 transition-all ring-1 ring-border/50 p-2">
                 <AutoResizeTextarea
                   ref={textareaRef}
@@ -1221,6 +1241,16 @@ export function ChatInterface() {
                 />
                 <div className="flex flex-shrink-0 gap-2">
                   <Button
+                    onClick={() => imageInputRef.current?.click()}
+                    variant={selectedImage ? "secondary" : "outline"}
+                    size="icon"
+                    className="rounded-full flex-shrink-0 h-9 w-9"
+                    aria-label="Attach image"
+                    disabled={isMessageLoading}
+                  >
+                    <ImagePlus className="h-4 w-4" />
+                  </Button>
+                  <Button
                     onClick={toggleRecording}
                     variant={isRecording ? "destructive" : "outline"}
                     size="icon"
@@ -1241,20 +1271,9 @@ export function ChatInterface() {
                       <Mic className="h-4 w-4" />
                     )}
                   </Button>
-                  {/* Interactive mic button commented out */}
-                  {/* <Button
-                  onClick={() => setShowInlineVoice(true)}
-                  variant="ghost"
-                  size="icon"
-                  className="rounded-full flex-shrink-0 h-9 w-9"
-                  aria-label="AI Enhanced Voice"
-                  disabled={isMessageLoading}
-                >
-                  <MicVocal className="h-4 w-4" />
-                </Button> */}
                   <Button
                     onClick={handleSendMessage}
-                    disabled={inputValue.trim() === "" || isMessageLoading}
+                    disabled={(inputValue.trim() === "" && !selectedImage) || isMessageLoading}
                     variant="default"
                     size="icon"
                     className="rounded-full flex-shrink-0 h-9 w-9"
@@ -1336,6 +1355,7 @@ export function ChatInterface() {
                   message={message.text}
                   isUser={message.isUser}
                   timestamp={message.timestamp}
+                  imageUrl={message.imageUrl}
                   onDislike={
                     !message.isUser &&
                     !message.isLoading &&
@@ -1384,6 +1404,15 @@ export function ChatInterface() {
       {isMobile ? (
         renderMobileInput()
       ) : (
+        <>
+          {/* Hidden image file input (desktop) */}
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleImageSelect}
+          />
         <div className="fixed bottom-0 left-0 right-0 bg-background/95 supports-[backdrop-filter]:bg-background/0">
           <div className="border-border">
             <div className="p-4">
@@ -1435,6 +1464,25 @@ export function ChatInterface() {
                     )}
                   </div>
                 </div>
+                {/* Desktop image preview */}
+                {imagePreviewUrl && (
+                  <div className="mb-2 flex items-start gap-2">
+                    <div className="relative">
+                      <img
+                        src={imagePreviewUrl}
+                        alt="Attachment preview"
+                        className="h-16 w-16 rounded-lg object-cover border border-border"
+                      />
+                      <button
+                        onClick={handleRemoveImage}
+                        className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center"
+                        aria-label="Remove image"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <div className="flex items-center gap-2 bg-card backdrop-blur-sm rounded-lg border-2 border-border shadow-lg hover:shadow-xl hover:border-primary/50 transition-all ring-1 ring-border/50 p-2">
                   <AutoResizeTextarea
                     ref={textareaRef}
@@ -1451,6 +1499,16 @@ export function ChatInterface() {
                     minRows={1}
                     maxRows={6}
                   />
+                  <Button
+                    onClick={() => imageInputRef.current?.click()}
+                    variant={selectedImage ? "secondary" : "outline"}
+                    size="icon"
+                    className="rounded-full flex-shrink-0"
+                    aria-label="Attach image"
+                    disabled={isMessageLoading}
+                  >
+                    <ImagePlus className="h-5 w-5" />
+                  </Button>
                   <Button
                     onClick={toggleRecording}
                     variant={isRecording ? "destructive" : "outline"}
@@ -1472,20 +1530,9 @@ export function ChatInterface() {
                       <Mic className="h-5 w-5" />
                     )}
                   </Button>
-                  {/* Interactive mic button commented out */}
-                  {/* <Button
-                    onClick={() => setShowInlineVoice(true)}
-                    variant="ghost"
-                    size="icon"
-                    className="rounded-full flex-shrink-0"
-                    aria-label="AI Enhanced Voice"
-                    disabled={isMessageLoading}
-                  >
-                    <MicVocal className="h-5 w-5" />
-                  </Button> */}
                   <Button
                     onClick={handleSendMessage}
-                    disabled={inputValue.trim() === "" || isMessageLoading}
+                    disabled={(inputValue.trim() === "" && !selectedImage) || isMessageLoading}
                     variant="default"
                     size="icon"
                     className="rounded-full flex-shrink-0"
@@ -1517,6 +1564,7 @@ export function ChatInterface() {
             </div>
           </div>
         </div>
+        </>
       )}
 
       <FeedbackForm

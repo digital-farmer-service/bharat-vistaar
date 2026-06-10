@@ -579,6 +579,83 @@ class ApiService {
     return out;
   }
 
+  private getUuidFromToken(): string {
+    try {
+      if (!this.authToken) return '';
+      const payload = this.authToken.split('.')[1];
+      if (!payload) return '';
+      const b64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+      const padded = b64 + '==='.slice((b64.length + 3) % 4);
+      const json = JSON.parse(atob(padded)) as Record<string, unknown>;
+      return (json.sub || json.uuid || json.userId || json.id || '') as string;
+    } catch {
+      return '';
+    }
+  }
+
+  async sendBeckenQuery(params: {
+    queryText: string;
+    sessionId: string;
+    fileStoreId?: string;
+    mimeType?: string;
+  }): Promise<{ responseText: string }> {
+    const execute = async (): Promise<{ responseText: string }> => {
+      this.refreshAuthToken();
+      if (!this.validateAuth()) throw new Error('Authentication required');
+
+      const body: Record<string, unknown> = {
+        requestInfo: {
+          apiId: 'Rainmaker',
+          authToken: this.authToken || '',
+          userInfo: { uuid: this.getUuidFromToken() },
+        },
+        queryText: params.queryText,
+        sessionId: params.sessionId,
+      };
+
+      if (params.fileStoreId) body.fileStoreId = params.fileStoreId;
+      if (params.mimeType) body.mimeType = params.mimeType;
+
+      const response = await this.axiosInstance.post(
+        '/dfs-personalization/chat/v1/_send',
+        body,
+        { headers: this.getAuthHeaders() },
+      );
+
+      const responseText =
+        response.data?.responseText ||
+        response.data?.ResponseBody?.responseText ||
+        '';
+      return { responseText };
+    };
+
+    return retryWithBackoff(execute, this.retryConfig);
+  }
+
+  async uploadToFilestore(file: File): Promise<string> {
+    this.refreshAuthToken();
+    if (!this.validateAuth()) throw new Error('Authentication required');
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await this.axiosInstance.post(
+      '/filestore/v1/files',
+      formData,
+      {
+        params: { tenantId: 'br', module: 'pgr' },
+        headers: {
+          ...this.getAuthHeaders(),
+          'Content-Type': 'multipart/form-data',
+        },
+      },
+    );
+
+    const fileStoreId: string = response.data?.files?.[0]?.fileStoreId || '';
+    if (!fileStoreId) throw new Error('Filestore returned no fileStoreId');
+    return fileStoreId;
+  }
+
   blobToBase64(blob: Blob): Promise<string> {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();

@@ -28,6 +28,7 @@ interface ChatMessageProps {
   message: string;
   isUser: boolean;
   timestamp: Date;
+  imageUrl?: string;
   onPlayAudio?: () => void;
   onDislike?: (messageId: string, questionText: string, responseText: string) => void;
   onLike?: (messageId: string, questionText: string, responseText: string) => void;
@@ -47,6 +48,7 @@ export function ChatMessage({
   message,
   isUser,
   timestamp,
+  imageUrl,
   onPlayAudio,
   onDislike,
   onLike,
@@ -380,6 +382,13 @@ export function ChatMessage({
               ? "bg-primary text-primary-foreground rounded-tr-none word-break-break-word"
               : `${displayMessage.length > 0 ? "bg-muted" : "hidden"} rounded-tl-none`
           )}>
+            {isUser && imageUrl && (
+              <img
+                src={imageUrl}
+                alt="Attached"
+                className="max-w-[200px] max-h-[200px] rounded-lg mb-2 object-cover"
+              />
+            )}
             {isLoading && !isErrorMessage ? (
               <div className={cn(
                 "flex items-center space-x-2 h-6"

@@ -2,17 +2,26 @@ import { createContext, useContext, ReactNode, useState, useEffect, useCallback 
 import { jwtVerify, importSPKI, JWTPayload } from 'jose';
 import apiService from '@/lib/api';
 
-// Backend auth adapter — single location to change endpoint or response shape
+// Backend auth adapter — single location to change endpoint or response shape.
+// Host comes from env (VITE_API_URL, e.g. https://dfsqa.beehyv.com); the auth
+// request is routed through our own backend, so it carries no auth token.
+const AUTH_TENANT_ID = "br";
 const BACKEND_AUTH_ENDPOINT =
   window.__ENV__?.VITE_BACKEND_AUTH_URL ||
-  `${window.__ENV__?.VITE_API_URL || "https://dev-vistaar.da.gov.in"}/api/token`;
+  `${window.__ENV__?.VITE_API_URL || "https://dfsqa.beehyv.com"}/dfs-personalization/chat/token/v1/_fetch?tenantId=${AUTH_TENANT_ID}`;
 
 apiService.setBackendAuthAdapter({
   endpoint: BACKEND_AUTH_ENDPOINT,
-  buildRequestBody: () => ({}),
+  // No authToken is required to call our backend; the field is sent empty.
+  buildRequestBody: () => ({
+    RequestInfo: {
+      apiId: "Rainmaker",
+      authToken: "",
+    },
+  }),
+  // Response shape: { token, expiresAt, cached }
   extractToken: (data: unknown) => {
     const d = data as Record<string, unknown>;
-    // Handles common shapes: { token }, { access_token }, { data: { token } }
     return (
       (d?.token as string) ||
       (d?.access_token as string) ||
@@ -25,7 +34,26 @@ apiService.setBackendAuthAdapter({
 
 // Constants
 const JWT_STORAGE_KEY = 'auth_jwt';
-const JWT_EXPIRY_DAYS = 365; // 1 year expiration
+const JWT_EXPIRY_DAYS = 365; // fallback expiry for tokens without an exp claim (e.g. guest)
+const TOKEN_REFRESH_THRESHOLD_MS = 5 * 60 * 1000; // renew 5 min before expiry
+
+/**
+ * Reads the `exp` claim (seconds since epoch) from a JWT and returns it as
+ * epoch milliseconds. Returns null when the token has no decodable exp claim
+ * (e.g. the guest placeholder token), so callers can fall back to a default.
+ */
+function getJwtExpiryMs(token: string): number | null {
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) return null;
+    const b64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = b64 + '==='.slice((b64.length + 3) % 4);
+    const json = JSON.parse(atob(padded)) as { exp?: number };
+    return typeof json.exp === 'number' ? json.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
 
 // User interface that contains the essential user information
 export interface User {
@@ -63,6 +91,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [publicKey, setPublicKey] = useState<CryptoKey | null>(null);
+  // Epoch ms when the active token expires; drives the proactive renewal timer.
+  // null for tokens without an exp claim (guest) → no renewal scheduled.
+  const [tokenExpiry, setTokenExpiry] = useState<number | null>(null);
 
   // JWT validation public key
   const publicKeyPEM = `-----BEGIN PUBLIC KEY-----
@@ -79,19 +110,18 @@ hwIDAQAB
   // This is a placeholder token that will be used until a real JWT is requested
   const GUEST_JWT_PLACEHOLDER = 'eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJndWVzdCIsInVzZXJuYW1lIjoiZ3Vlc3QiLCJlbWFpbCI6Imd1ZXN0QGV4YW1wbGUuY29tIiwiaXNHdWVzdCI6dHJ1ZX0.guest_signature';
 
-  // Store JWT in localStorage with expiration
+  // Store JWT in localStorage, using the token's own exp claim as the expiry.
+  // Tokens without an exp claim (guest placeholder) fall back to JWT_EXPIRY_DAYS.
   const storeJWT = (token: string) => {
     try {
-      const now = new Date();
-      const expiryDate = new Date(now);
-      expiryDate.setDate(now.getDate() + JWT_EXPIRY_DAYS);
-      
-      const tokenData = {
-        token,
-        expiry: expiryDate.getTime()
-      };
-      
-      localStorage.setItem(JWT_STORAGE_KEY, JSON.stringify(tokenData));
+      const expFromToken = getJwtExpiryMs(token);
+      const expiry =
+        expFromToken ??
+        new Date().getTime() + JWT_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
+
+      localStorage.setItem(JWT_STORAGE_KEY, JSON.stringify({ token, expiry }));
+      // Drive the renewal timer; null (no exp) means "don't schedule a refresh".
+      setTokenExpiry(expFromToken);
       return true;
     } catch (error) {
       console.error("Error storing JWT:", error);
@@ -185,6 +215,8 @@ hwIDAQAB
              if (importedPublicKey) {
               const result = await validateJWT(storedToken, importedPublicKey);
               if (result.isValid) {
+                // Schedule renewal for the already-stored, still-valid token.
+                setTokenExpiry(getJwtExpiryMs(storedToken));
                 createUserFromPayload(result.payload);
               } else {
                 // Token is invalid or expired, fetch new token from /chat/auth
@@ -235,6 +267,26 @@ hwIDAQAB
       window.removeEventListener("auth:token-refreshed", handleTokenRefreshed);
     };
   }, [publicKey, fetchAndStoreNewToken]);
+
+  // Proactively renew the token shortly before it expires. With short-lived
+  // (~15 min) tokens this covers idle tabs where no API call would otherwise
+  // trigger a refresh. The 403 interceptor in ApiService remains the fallback.
+  //
+  // Note: if the backend returns a cached token with an identical `exp`,
+  // setTokenExpiry stores the same value and this effect won't re-run, so the
+  // next timer isn't scheduled — the token then rides to hard expiry and the
+  // 403 interceptor renews it. Acceptable given that fallback.
+  useEffect(() => {
+    if (!tokenExpiry) return;
+    const delay = Math.max(
+      0,
+      tokenExpiry - new Date().getTime() - TOKEN_REFRESH_THRESHOLD_MS
+    );
+    const timerId = window.setTimeout(() => {
+      fetchAndStoreNewToken(publicKey);
+    }, delay);
+    return () => window.clearTimeout(timerId);
+  }, [tokenExpiry, publicKey, fetchAndStoreNewToken]);
 
   // Create a user object from JWT payload
   const createUserFromPayload = (payload: JWTPayload | null) => {
