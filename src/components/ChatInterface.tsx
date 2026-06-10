@@ -1,43 +1,34 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Send,
-  Mic,
   ChevronLeft,
   ChevronRight,
   Info,
   ImagePlus,
   X,
+  Loader2,
+  AlertCircle,
+  CheckCircle2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ChatMessage } from "@/components/ChatMessage";
 import { useLanguage } from "@/components/LanguageProvider";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { AudioWaveform } from "@/components/AudioWaveform";
 import apiService from "@/lib/api";
 import { EmptyStateScreen } from "@/components/EmptyStateScreen";
 import BharatVistarLogo from "@/assets/BharatVistarLogo.png";
 import AutoResizeTextarea from "@/components/AutoResizeTextarea";
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "@/hooks/use-toast";
-import { startTelemetry, logFeedbackEvent } from "@/lib/telemetry";
-import {
-  setupAudioVisualization,
-  setupAudioRecording,
-  stopRecording,
-} from "@/lib/audio-utils";
 import { cn } from "@/lib/utils";
-import { useTts } from "@/hooks/use-tts";
-import { FeedbackForm } from "@/components/FeedbackForm";
 import { useAuth } from "@/contexts/AuthContext";
-import VoiceAssistantInline from "@/components/VoiceAssistantInline";
 
 interface Message {
   id: string;
   text: string;
   isUser: boolean;
   timestamp: Date;
-  isFeedbackMessage?: boolean;
   isLoading?: boolean;
   isStreaming?: boolean;
   questionId?: string;
@@ -52,35 +43,26 @@ interface Message {
   imageUrl?: string;
 }
 
-// Audio interfaces
-interface Window {
-  webkitAudioContext: typeof AudioContext;
-  currentAudioStream?: MediaStream | null;
-  mediaRecorder?: MediaRecorder | null;
-}
-
 export function ChatInterface() {
   const { language, t } = useLanguage();
   const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
-  const [isRecording, setIsRecording] = useState(false);
   const [inputPositioned, setInputPositioned] = useState(true);
-  // Auto-resize now handled by AutoResizeTextarea; no explicit rows state
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const initialSuggestionRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [maxRecordingDuration, setMaxRecordingDuration] = useState(20000); // 8 seconds in milliseconds
-  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const [isMessageLoading, setIsMessageLoading] = useState(false); // Track if a message is currently loading
-  const [showInlineVoice, setShowInlineVoice] = useState(false);
+  const [isMessageLoading, setIsMessageLoading] = useState(false);
 
   // Image attachment states
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [imageUploadState, setImageUploadState] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle');
+  const [pendingFileStoreId, setPendingFileStoreId] = useState<string | null>(null);
+  const uploadTokenRef = useRef(0);
   const imageInputRef = useRef<HTMLInputElement>(null);
 
   // Suggestion related states
@@ -99,39 +81,10 @@ export function ChatInterface() {
   const [maxSuggestionRefreshes, setMaxSuggestionRefreshes] = useState(5);
   const suggestionRefreshTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Audio related states and refs
-  const [audioLevel, setAudioLevel] = useState(0.5);
-  const audioAnalyserRef = useRef<AnalyserNode | null>(null);
-  const audioDataRef = useRef<Uint8Array | null>(null);
-  const animationFrameRef = useRef<number | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioStreamRef = useRef<MediaStream | null>(null);
-
-  // Feedback related states
-  const feedbackOptions = t("feedbackOptions") as string[];
-  const [showFeedbackDialog, setShowFeedbackDialog] = useState(false);
-  const [feedbackText, setFeedbackText] = useState("");
-  const [dislikedMessageId, setDislikedMessageId] = useState<string | null>(
-    null,
-  );
-  const [likedMessageId, setLikedMessageId] = useState<string | null>(null);
-  const [feedbackQuestionText, setFeedbackQuestionText] = useState("");
-  const [feedbackResponseText, setFeedbackResponseText] = useState("");
-  const [isFeedbackRecording, setIsFeedbackRecording] = useState(false);
-  const feedbackRecordingTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const feedbackAudioAnalyserRef = useRef<AnalyserNode | null>(null);
-  const feedbackAudioDataRef = useRef<Uint8Array | null>(null);
-  const feedbackAnimationFrameRef = useRef<number | null>(null);
-  const feedbackMediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const feedbackAudioStreamRef = useRef<MediaStream | null>(null);
-  const [feedbackAudioLevel, setFeedbackAudioLevel] = useState(0.5);
-
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const inputContainerRef = useRef<HTMLDivElement>(null);
-
-  const { stopAudio, playAudio } = useTts();
 
   // Add this effect to update the input height CSS variable
   useEffect(() => {
@@ -182,17 +135,6 @@ export function ChatInterface() {
     );
   };
 
-  // Create a session ID
-  const createSession = useCallback(() => {
-    const newSessionId = uuidv4();
-    setSessionId(newSessionId);
-    apiService.setSessionId(newSessionId);
-    startTelemetry(newSessionId, {
-      preferred_username: user?.username || "default-username",
-      email: user?.email || "default-email",
-    });
-    return newSessionId;
-  }, [user]);
 
   // Helper function to update suggestion refresh interval (tweakable)
   const updateSuggestionRefreshInterval = (intervalMs: number) => {
@@ -337,59 +279,63 @@ export function ChatInterface() {
   }, []);
 
   // Image attachment handlers
-  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setSelectedImage(file);
-    const url = URL.createObjectURL(file);
-    setImagePreviewUrl(url);
-    // Reset input so same file can be re-selected
     if (imageInputRef.current) imageInputRef.current.value = "";
+
+    const token = ++uploadTokenRef.current;
+    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+    const url = URL.createObjectURL(file);
+    setSelectedImage(file);
+    setImagePreviewUrl(url);
+    setImageUploadState('uploading');
+    setPendingFileStoreId(null);
+
+    try {
+      const id = await apiService.uploadToFilestore(file);
+      if (uploadTokenRef.current !== token) return;
+      setPendingFileStoreId(id);
+      setImageUploadState('done');
+    } catch {
+      if (uploadTokenRef.current !== token) return;
+      setImageUploadState('error');
+    }
   };
 
   const handleRemoveImage = () => {
+    uploadTokenRef.current++;
     if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
     setSelectedImage(null);
     setImagePreviewUrl(null);
+    setImageUploadState('idle');
+    setPendingFileStoreId(null);
   };
 
   // Handle text message sending
   const handleSendMessage = async () => {
     const textToSend = inputValue.trim();
-    if ((textToSend === "" && !selectedImage) || isMessageLoading) return;
+    if ((textToSend === "" && !selectedImage) || isMessageLoading || imageUploadState === 'uploading') return;
 
-    // Capture attachment state before clearing
-    const imageToUpload = selectedImage;
+    // Capture before clearing; use the already-uploaded fileStoreId (text-only if upload failed)
     const imageMimeType = selectedImage?.type;
     const imageUrlToShow = imagePreviewUrl;
+    const fileStoreId = imageUploadState === 'done' ? pendingFileStoreId || undefined : undefined;
 
+    uploadTokenRef.current++; // invalidate any late-resolving upload
     if (!inputPositioned) setInputPositioned(true);
     scrollToBottomOfMessages();
 
-    // Add user message with optional image
-    const userMessageId = addMessage(textToSend, true, {
-      imageUrl: imageUrlToShow || undefined,
-    });
+    // Add user message (object URL stays valid — not revoked on send)
+    addMessage(textToSend, true, { imageUrl: imageUrlToShow || undefined });
     const loadingMessageId = addMessage("", false, { isLoading: true });
 
     setIsMessageLoading(true);
     setInputValue("");
     setSelectedImage(null);
     setImagePreviewUrl(null);
-
-    let fileStoreId: string | undefined;
-    if (imageToUpload) {
-      try {
-        fileStoreId = await apiService.uploadToFilestore(imageToUpload);
-      } catch (uploadError) {
-        console.error("Image upload failed:", uploadError);
-        toast({
-          title: t("toast.imageUploadFailed.title") as string || "Upload failed",
-          description: t("toast.imageUploadFailed.description") as string || "Could not upload image. Sending text only.",
-          variant: "yellow",
-        });
-      }
-    }
+    setImageUploadState('idle');
+    setPendingFileStoreId(null);
 
     try {
       await sendMessageToApi(textToSend, loadingMessageId, {
@@ -427,10 +373,9 @@ export function ChatInterface() {
   const sendMessageToApi = async (
     text: string,
     loadingMessageId: string,
-    options?: { autoTts?: boolean; fileStoreId?: string; mimeType?: string },
+    options?: { fileStoreId?: string; mimeType?: string },
   ): Promise<{ messageId: string; finalText: string | null }> => {
     const questionId = uuidv4();
-    const currentSession = sessionId || createSession();
 
     updateMessage(loadingMessageId, {
       isLoading: true,
@@ -442,10 +387,16 @@ export function ChatInterface() {
     try {
       const response = await apiService.sendBeckenQuery({
         queryText: text,
-        sessionId: currentSession,
+        sessionId: sessionId ?? undefined,
         fileStoreId: options?.fileStoreId,
         mimeType: options?.mimeType,
       });
+
+      // Persist the backend's session ID for subsequent turns
+      if (response.sessionId) {
+        setSessionId(response.sessionId);
+        apiService.setSessionId(response.sessionId);
+      }
 
       if (response.responseText) {
         updateMessage(loadingMessageId, {
@@ -456,9 +407,6 @@ export function ChatInterface() {
           questionText: text,
           canRetry: false,
         });
-        if (options?.autoTts) {
-          playAudio(response.responseText, loadingMessageId);
-        }
         return { messageId: loadingMessageId, finalText: response.responseText };
       } else {
         updateMessage(loadingMessageId, {
@@ -486,24 +434,6 @@ export function ChatInterface() {
       });
       forceUIRefresh();
       return { messageId: loadingMessageId, finalText: null };
-    }
-  };
-
-  // Inline voice assistant -> send voice transcription into chat
-  const handleSendFromVoiceDialog = async (
-    voiceText: string,
-  ): Promise<{ botMessageId: string; responseText: string }> => {
-    const userMessageId = addMessage(voiceText, true);
-    const loadingMessageId = addMessage("", false, { isLoading: true });
-    setIsMessageLoading(true);
-    try {
-      const result = await sendMessageToApi(voiceText, loadingMessageId);
-      return {
-        botMessageId: result.messageId,
-        responseText: result.finalText || "",
-      };
-    } finally {
-      setIsMessageLoading(false);
     }
   };
 
@@ -542,151 +472,6 @@ export function ChatInterface() {
     } finally {
       setIsMessageLoading(false);
     }
-  };
-
-  // Audio recording functions
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      await setIsRecording(true);
-
-      // Store the stream in the ref
-      audioStreamRef.current = stream;
-
-      // Use the audio utility functions
-      setupAudioVisualization(
-        stream,
-        audioAnalyserRef,
-        audioDataRef,
-        animationFrameRef,
-        setAudioLevel,
-      );
-
-      setupAudioRecording(
-        stream,
-        mediaRecorderRef,
-        (transcribedText: string) => {
-          // Handle transcribed text callback
-          setInputValue(
-            (prevValue) => prevValue + (prevValue ? " " : "") + transcribedText,
-          );
-          setTimeout(() => {
-            const textarea = textareaRef.current;
-            if (!textarea) return;
-            textarea.style.height = "40px";
-            const scrollHeight = textarea.scrollHeight;
-            if (scrollHeight > 40) {
-              textarea.style.height = `${Math.min(scrollHeight, 120)}px`;
-            }
-          }, 10);
-        },
-        sessionId,
-        toast,
-      );
-
-      // Set timeout to stop recording after maxRecordingDuration
-      recordingTimerRef.current = setTimeout(() => {
-        stopRecording(
-          setIsRecording,
-          recordingTimerRef,
-          animationFrameRef,
-          mediaRecorderRef,
-          audioStreamRef,
-          audioAnalyserRef,
-          audioDataRef,
-        );
-      }, maxRecordingDuration);
-    } catch (err) {
-      console.error("Error accessing microphone:", err);
-      toast({
-        title: "Microphone permission required",
-        description:
-          "Please allow microphone access in your browser settings to record audio.",
-        variant: "yellow",
-      });
-    }
-  };
-
-  const toggleRecording = () => {
-    if (isRecording) {
-      stopRecording(
-        setIsRecording,
-        recordingTimerRef,
-        animationFrameRef,
-        mediaRecorderRef,
-        audioStreamRef,
-        audioAnalyserRef,
-        audioDataRef,
-      );
-    } else {
-      startRecording();
-    }
-  };
-
-  // Feedback handling
-  const handleDislike = (
-    messageId: string,
-    questionText: string,
-    responseText: string,
-  ) => {
-    const message = messages.find((m) => m.id === messageId);
-    if (!message) return;
-
-    setDislikedMessageId(messageId);
-    setFeedbackQuestionText(questionText);
-    setFeedbackResponseText(responseText);
-    setShowFeedbackDialog(true);
-  };
-
-  const handleLike = (
-    messageId: string,
-    questionText: string,
-    responseText: string,
-  ) => {
-    const message = messages.find((m) => m.id === messageId);
-    if (!message) return;
-
-    setLikedMessageId(messageId);
-    setFeedbackQuestionText(questionText);
-    setFeedbackResponseText(responseText);
-
-    logFeedbackEvent(
-      message.questionId || messageId,
-      sessionId,
-      "Liked the response",
-      "like",
-      message.questionText || "",
-      message.text,
-    );
-
-    toast({
-      title: t("toast.feedbackThankYou.title") as string,
-      description: t("toast.feedbackThankYou.description") as string,
-    });
-  };
-
-  const submitFeedback = () => {
-    const message = messages.find((m) => m.id === dislikedMessageId);
-    if (!message) return;
-
-    toast({
-      title: t("toast.feedbackSubmitted.title") as string,
-      description: t("toast.feedbackSubmitted.description") as string,
-    });
-
-    logFeedbackEvent(
-      message.questionId || dislikedMessageId,
-      sessionId,
-      feedbackText,
-      "dislike",
-      message.questionText || "",
-      message.text,
-    );
-    setShowFeedbackDialog(false);
-    setFeedbackText("");
-    setDislikedMessageId(null);
-    setFeedbackQuestionText("");
-    setFeedbackResponseText("");
   };
 
   // UI interactions
@@ -791,78 +576,7 @@ export function ChatInterface() {
     setInputValue(text);
   };
 
-  // Start recording for feedback
-  const startFeedbackRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      await setIsFeedbackRecording(true);
-
-      // Store the stream in the ref
-      feedbackAudioStreamRef.current = stream;
-
-      // Use the audio utility functions
-      setupAudioVisualization(
-        stream,
-        feedbackAudioAnalyserRef,
-        feedbackAudioDataRef,
-        feedbackAnimationFrameRef,
-        setFeedbackAudioLevel,
-      );
-
-      setupAudioRecording(
-        stream,
-        feedbackMediaRecorderRef,
-        (transcribedText: string) => {
-          // Handle transcribed text callback for feedback
-          setFeedbackText(
-            (prevValue) => prevValue + (prevValue ? " " : "") + transcribedText,
-          );
-        },
-        sessionId,
-        toast,
-      );
-
-      // Set timeout to stop recording after maxRecordingDuration
-      feedbackRecordingTimerRef.current = setTimeout(() => {
-        stopFeedbackRecording();
-      }, maxRecordingDuration);
-    } catch (err) {
-      console.error("Error accessing microphone for feedback:", err);
-      toast({
-        title: "Microphone permission required",
-        description:
-          "Please allow microphone access in your browser settings to record feedback.",
-        variant: "yellow",
-      });
-    }
-  };
-
-  const stopFeedbackRecording = () => {
-    stopRecording(
-      setIsFeedbackRecording,
-      feedbackRecordingTimerRef,
-      feedbackAnimationFrameRef,
-      feedbackMediaRecorderRef,
-      feedbackAudioStreamRef,
-      feedbackAudioAnalyserRef,
-      feedbackAudioDataRef,
-    );
-  };
-
-  const toggleFeedbackRecording = () => {
-    if (isFeedbackRecording) {
-      stopFeedbackRecording();
-    } else {
-      startFeedbackRecording();
-    }
-  };
-
   // Effects
-  useEffect(() => {
-    // Initialize with a new session ID right away
-    createSession();
-  }, [createSession]);
-
   useEffect(() => {
     getUserLocation();
   }, []);
@@ -998,10 +712,7 @@ export function ChatInterface() {
         >
           <div className="mx-3 mb-2">
             <div
-              className={cn(
-                "flex items-center gap-2",
-                !currentSuggestion && showInlineVoice ? "justify-end" : "",
-              )}
+              className="flex items-center gap-2"
             >
               {currentSuggestion && (
                 <div
@@ -1029,14 +740,6 @@ export function ChatInterface() {
                   </div>
                 </div>
               )}
-              {showInlineVoice && (
-                <VoiceAssistantInline
-                  onSendVoice={handleSendFromVoiceDialog}
-                  className="flex-shrink-0"
-                  onClose={() => setShowInlineVoice(false)}
-                  autoStart={!currentSuggestion}
-                />
-              )}
             </div>
           </div>
           <div
@@ -1047,23 +750,27 @@ export function ChatInterface() {
             )}
           >
             <div className="px-3 pt-3 pb-1 relative">
-              {/* Image preview strip */}
-              {imagePreviewUrl && (
-                <div className="mb-2 flex items-start gap-2">
-                  <div className="relative">
-                    <img
-                      src={imagePreviewUrl}
-                      alt="Attachment preview"
-                      className="h-16 w-16 rounded-lg object-cover border border-border"
-                    />
-                    <button
-                      onClick={handleRemoveImage}
-                      className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center"
-                      aria-label="Remove image"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
+              {/* Image preview chip — flows above the input row */}
+              {selectedImage && (
+                <div className="mb-2 flex items-center gap-2 px-3 py-2 bg-muted/60 rounded-xl border border-border">
+                  <div className="relative h-9 w-9 flex-shrink-0">
+                    <img src={imagePreviewUrl!} alt="" className="h-9 w-9 rounded-lg object-cover" />
+                    {imageUploadState === 'uploading' && (
+                      <div className="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center">
+                        <Loader2 className="h-3.5 w-3.5 text-white animate-spin" />
+                      </div>
+                    )}
                   </div>
+                  <span className="text-xs text-muted-foreground flex-1 truncate min-w-0">
+                    {imageUploadState === 'uploading' ? 'Uploading…' :
+                     imageUploadState === 'error' ? 'Upload failed — will send text only' :
+                     selectedImage.name}
+                  </span>
+                  {imageUploadState === 'error' && <AlertCircle className="h-3.5 w-3.5 text-destructive flex-shrink-0" />}
+                  {imageUploadState === 'done' && <CheckCircle2 className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />}
+                  <button onClick={handleRemoveImage} className="flex-shrink-0 p-1 rounded text-muted-foreground hover:text-foreground" aria-label="Remove image">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
                 </div>
               )}
               <div className="flex items-center gap-2 bg-card backdrop-blur-sm rounded-lg border-2 border-border shadow-lg hover:shadow-xl hover:border-primary/50 transition-all ring-1 ring-border/50 p-2">
@@ -1110,29 +817,8 @@ export function ChatInterface() {
                     <ImagePlus className="h-4 w-4" />
                   </Button>
                   <Button
-                    onClick={toggleRecording}
-                    variant={isRecording ? "destructive" : "outline"}
-                    size="icon"
-                    className="rounded-full flex-shrink-0 h-9 w-9"
-                    aria-label={
-                      isRecording
-                        ? (t("stopRecording") as string)
-                        : (t("startRecording") as string)
-                    }
-                    disabled={isMessageLoading}
-                  >
-                    {isRecording ? (
-                      <AudioWaveform
-                        isActive={isRecording}
-                        audioLevel={audioLevel}
-                      />
-                    ) : (
-                      <Mic className="h-4 w-4" />
-                    )}
-                  </Button>
-                  <Button
                     onClick={handleSendMessage}
-                    disabled={(inputValue.trim() === "" && !selectedImage) || isMessageLoading}
+                    disabled={(inputValue.trim() === "" && !selectedImage) || isMessageLoading || imageUploadState === 'uploading'}
                     variant="default"
                     size="icon"
                     className="rounded-full flex-shrink-0 h-9 w-9"
@@ -1215,39 +901,9 @@ export function ChatInterface() {
                   isUser={message.isUser}
                   timestamp={message.timestamp}
                   imageUrl={message.imageUrl}
-                  onDislike={
-                    !message.isUser &&
-                    !message.isLoading &&
-                    !message.isFeedbackMessage
-                      ? (questionText: string, responseText: string) =>
-                          handleDislike(
-                            message.id,
-                            message.questionText || "",
-                            message.text,
-                          )
-                      : undefined
-                  }
-                  onLike={
-                    !message.isUser &&
-                    !message.isLoading &&
-                    !message.isFeedbackMessage
-                      ? (questionText: string, responseText: string) =>
-                          handleLike(
-                            message.id,
-                            message.questionText || "",
-                            message.text,
-                          )
-                      : undefined
-                  }
-                  onRetry={
-                    message.canRetry ? () => handleRetry(message.id) : undefined
-                  }
+                  onRetry={message.canRetry ? () => handleRetry(message.id) : undefined}
                   messageId={message.id}
                   isLoading={message.isLoading}
-                  isStreaming={message.isStreaming}
-                  isFeedbackMessage={message.isFeedbackMessage}
-                  questionText={message.questionText}
-                  responseText={message.text}
                   isErrorMessage={message.isErrorMessage}
                   errorTranslationKey={message.errorTranslationKey}
                   retryClickCount={message.retryClickCount}
@@ -1276,70 +932,45 @@ export function ChatInterface() {
           <div className="border-border">
             <div className="p-4">
               <div className="relative max-w-2xl mx-auto">
-                <div className="absolute -top-16 left-4 right-4 z-10">
-                  <div
-                    className={cn(
-                      "flex items-center gap-2",
-                      !currentSuggestion && showInlineVoice
-                        ? "justify-end"
-                        : "",
-                    )}
-                  >
-                    {currentSuggestion && (
-                      <div
-                        className="flex-1 bg-background/95 p-3 backdrop-blur rounded-lg text-sm cursor-pointer hover:border hover:border-primary transition-all border"
-                        onClick={() =>
-                          handleSuggestionSelect(currentSuggestion)
-                        }
-                      >
-                        <div className="flex items-center justify-between">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 rounded-full"
-                            onClick={handlePreviousSuggestion}
-                          >
-                            <ChevronLeft className="h-4 w-4" />
-                          </Button>
-                          <div className="font-medium">{currentSuggestion}</div>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 rounded-full"
-                            onClick={handleNextSuggestion}
-                          >
-                            <ChevronRight className="h-4 w-4" />
-                          </Button>
-                        </div>
+                {currentSuggestion && (
+                  <div className="absolute -top-16 left-4 right-4 z-10">
+                    <div
+                      className="flex-1 bg-background/95 p-3 backdrop-blur rounded-lg text-sm cursor-pointer hover:border hover:border-primary transition-all border"
+                      onClick={() => handleSuggestionSelect(currentSuggestion)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full" onClick={handlePreviousSuggestion}>
+                          <ChevronLeft className="h-4 w-4" />
+                        </Button>
+                        <div className="font-medium">{currentSuggestion}</div>
+                        <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full" onClick={handleNextSuggestion}>
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
                       </div>
-                    )}
-                    {showInlineVoice && (
-                      <VoiceAssistantInline
-                        onSendVoice={handleSendFromVoiceDialog}
-                        className="flex-shrink-0"
-                        onClose={() => setShowInlineVoice(false)}
-                        autoStart={!currentSuggestion}
-                      />
-                    )}
-                  </div>
-                </div>
-                {/* Desktop image preview */}
-                {imagePreviewUrl && (
-                  <div className="mb-2 flex items-start gap-2">
-                    <div className="relative">
-                      <img
-                        src={imagePreviewUrl}
-                        alt="Attachment preview"
-                        className="h-16 w-16 rounded-lg object-cover border border-border"
-                      />
-                      <button
-                        onClick={handleRemoveImage}
-                        className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center"
-                        aria-label="Remove image"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
                     </div>
+                  </div>
+                )}
+                {/* Desktop image preview chip */}
+                {selectedImage && (
+                  <div className="mb-2 flex items-center gap-2 px-3 py-2 bg-muted/60 rounded-xl border border-border">
+                    <div className="relative h-9 w-9 flex-shrink-0">
+                      <img src={imagePreviewUrl!} alt="" className="h-9 w-9 rounded-lg object-cover" />
+                      {imageUploadState === 'uploading' && (
+                        <div className="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center">
+                          <Loader2 className="h-3.5 w-3.5 text-white animate-spin" />
+                        </div>
+                      )}
+                    </div>
+                    <span className="text-xs text-muted-foreground flex-1 truncate min-w-0">
+                      {imageUploadState === 'uploading' ? 'Uploading…' :
+                       imageUploadState === 'error' ? 'Upload failed — will send text only' :
+                       selectedImage.name}
+                    </span>
+                    {imageUploadState === 'error' && <AlertCircle className="h-3.5 w-3.5 text-destructive flex-shrink-0" />}
+                    {imageUploadState === 'done' && <CheckCircle2 className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />}
+                    <button onClick={handleRemoveImage} className="flex-shrink-0 p-1 rounded text-muted-foreground hover:text-foreground" aria-label="Remove image">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
                   </div>
                 )}
                 <div className="flex items-center gap-2 bg-card backdrop-blur-sm rounded-lg border-2 border-border shadow-lg hover:shadow-xl hover:border-primary/50 transition-all ring-1 ring-border/50 p-2">
@@ -1369,29 +1000,8 @@ export function ChatInterface() {
                     <ImagePlus className="h-5 w-5" />
                   </Button>
                   <Button
-                    onClick={toggleRecording}
-                    variant={isRecording ? "destructive" : "outline"}
-                    size="icon"
-                    className="rounded-full flex-shrink-0"
-                    aria-label={
-                      isRecording
-                        ? (t("stopRecording") as string)
-                        : (t("startRecording") as string)
-                    }
-                    disabled={isMessageLoading}
-                  >
-                    {isRecording ? (
-                      <AudioWaveform
-                        isActive={isRecording}
-                        audioLevel={audioLevel}
-                      />
-                    ) : (
-                      <Mic className="h-5 w-5" />
-                    )}
-                  </Button>
-                  <Button
                     onClick={handleSendMessage}
-                    disabled={(inputValue.trim() === "" && !selectedImage) || isMessageLoading}
+                    disabled={(inputValue.trim() === "" && !selectedImage) || isMessageLoading || imageUploadState === 'uploading'}
                     variant="default"
                     size="icon"
                     className="rounded-full flex-shrink-0"
@@ -1426,17 +1036,6 @@ export function ChatInterface() {
         </>
       )}
 
-      <FeedbackForm
-        showFeedbackDialog={showFeedbackDialog}
-        setShowFeedbackDialog={setShowFeedbackDialog}
-        feedbackText={feedbackText}
-        setFeedbackText={setFeedbackText}
-        feedbackOptions={feedbackOptions}
-        isFeedbackRecording={isFeedbackRecording}
-        toggleFeedbackRecording={toggleFeedbackRecording}
-        feedbackAudioLevel={feedbackAudioLevel}
-        submitFeedback={submitFeedback}
-      />
     </div>
   );
 }

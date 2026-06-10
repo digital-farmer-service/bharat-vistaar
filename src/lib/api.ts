@@ -606,30 +606,34 @@ class ApiService {
 
   async sendBeckenQuery(params: {
     queryText: string;
-    sessionId: string;
+    sessionId?: string;
     fileStoreId?: string;
     mimeType?: string;
-  }): Promise<{ responseText: string }> {
-    const execute = async (): Promise<{ responseText: string }> => {
+  }): Promise<{ responseText: string; sessionId?: string }> {
+    const execute = async (): Promise<{ responseText: string; sessionId?: string }> => {
+      const message: Record<string, unknown> = {
+        text: params.queryText,
+      };
+      if (params.fileStoreId) message.fileStoreId = params.fileStoreId;
+      if (params.mimeType) message.mimeType = params.mimeType;
+
       const body: Record<string, unknown> = {
         RequestInfo: {
           apiId: 'dfs-personalization',
           ver: '1.0',
-          ts: Date.now(),
-          msgId: `msg-${crypto.randomUUID()}`,
           userInfo: {
             uuid: this.getUserUuid(),
             roles: [{ code: 'CITIZEN', tenantId: 'br' }],
           },
         },
-        queryText: params.queryText,
+        message,
       };
 
-      if (params.fileStoreId) body.fileStoreId = params.fileStoreId;
-      if (params.mimeType) body.mimeType = params.mimeType;
+      // Include backend session ID on turns after the first
+      if (params.sessionId) body.sessionId = params.sessionId;
 
       const response = await axios.post(
-        `${this.apiUrl}/dfs-personalization/chat/v1/_send`,
+        `${this.apiUrl}/dfs-personalization/chat/v1/_send?tenantId=br`,
         body,
         { headers: { 'Content-Type': 'application/json' } },
       );
@@ -638,7 +642,8 @@ class ApiService {
         response.data?.responseText ||
         response.data?.ResponseBody?.responseText ||
         '';
-      return { responseText };
+      const sessionId: string | undefined = response.data?.sessionId || undefined;
+      return { responseText, sessionId };
     };
 
     return retryWithBackoff(execute, this.retryConfig);
