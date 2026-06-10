@@ -11,7 +11,7 @@ export default defineConfig(({ mode }) => ({
     proxy: {
       // dfs-personalization backend (Becken chat, auth token)
       "/dfs-personalization": {
-        target: "http://localhost:8081",
+        target: "http://localhost:8002",
         changeOrigin: true,
       },
       // eGov filestore
