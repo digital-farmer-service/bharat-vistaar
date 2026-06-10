@@ -2,63 +2,35 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Send,
   Mic,
-  MicOff,
-  ChevronUp,
   ChevronLeft,
   ChevronRight,
   Info,
-  MicVocal,
   ImagePlus,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { SuggestionChips } from "@/components/SuggestionChips";
 import { ChatMessage } from "@/components/ChatMessage";
 import { useLanguage } from "@/components/LanguageProvider";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { AudioWaveform } from "@/components/AudioWaveform";
 import apiService from "@/lib/api";
 import { EmptyStateScreen } from "@/components/EmptyStateScreen";
-import { detectIndianLanguage } from "@/lib/utils";
 import BharatVistarLogo from "@/assets/BharatVistarLogo.png";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import AutoResizeTextarea from "@/components/AutoResizeTextarea";
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "@/hooks/use-toast";
-import {
-  startTelemetry,
-  logQuestionEvent,
-  logResponseEvent,
-  endTelemetry,
-  endTelemetryWithWait,
-  logFeedbackEvent,
-  logErrorEvent,
-  markAnswerRendered,
-  initChatApiPerformanceObserver,
-} from "@/lib/telemetry";
-// Import audio utilities
+import { startTelemetry, logFeedbackEvent } from "@/lib/telemetry";
 import {
   setupAudioVisualization,
   setupAudioRecording,
   stopRecording,
 } from "@/lib/audio-utils";
-
-// import { useKeycloak } from "@react-keycloak/web";
 import { cn } from "@/lib/utils";
 import { useTts } from "@/hooks/use-tts";
 import { FeedbackForm } from "@/components/FeedbackForm";
 import { useAuth } from "@/contexts/AuthContext";
 import VoiceAssistantInline from "@/components/VoiceAssistantInline";
-import { markServerRequestStart } from "@/lib/telemetry";
 
 interface Message {
   id: string;
@@ -78,21 +50,6 @@ interface Message {
   originalUserMessage?: string;
   retryClickCount?: number;
   imageUrl?: string;
-}
-
-interface ChatResponse {
-  response: string;
-  status: string;
-}
-
-interface TranscriptionResponse {
-  text: string;
-  lang_code: string;
-  status: string;
-}
-
-interface SuggestionItem {
-  question: string;
 }
 
 // Audio interfaces
@@ -338,32 +295,6 @@ export function ChatInterface() {
     }
   };
 
-  // Fetch suggestions for the chat - only called after a chat response
-  const fetchSuggestions = async (currentSession = sessionId) => {
-    // Use the current sessionId or create a new one if needed
-    const sessionToUse = currentSession || createSession();
-
-    try {
-      const suggestions = (await apiService.getSuggestions(
-        sessionToUse,
-        language,
-      )) as SuggestionItem[];
-      if (suggestions && suggestions.length > 0) {
-        setNewSuggestion(suggestions);
-      }
-    } catch (error) {
-      console.error("Failed to fetch suggestions:", error);
-      // Set a fallback suggestion if API fails
-      // const fallbackSuggestions = [
-      //   "What is the weather forecast for tomorrow?",
-      //   "Tell me about PM Kisan Yojana",
-      //   "What is the current market price of wheat?",
-      //   "How to prevent crop diseases during monsoon?",
-      // ];
-      // setNewSuggestion({ question: fallbackSuggestions[Math.floor(Math.random() * fallbackSuggestions.length)] });
-    }
-  };
-
   const setNewSuggestion = (
     suggestions: SuggestionItem[] | { question: string },
   ) => {
@@ -404,35 +335,6 @@ export function ChatInterface() {
       }
     };
   }, []);
-
-  useEffect(() => {
-    const lastAnswer = [...messages]
-      .reverse()
-      .find(
-        (m) => !m.isUser && m.questionId && m.text && m.isStreaming === false,
-      );
-
-    if (lastAnswer) {
-      requestAnimationFrame(() => {
-        markAnswerRendered(lastAnswer.questionId!, () => {
-          // Call logResponseEvent after paint timing is recorded
-          const message = messages.find(
-            (m) => m.questionId === lastAnswer.questionId,
-          );
-          if (message && message.questionText) {
-            logResponseEvent(
-              lastAnswer.questionId!,
-              sessionId,
-              message.questionText,
-              lastAnswer.text,
-            );
-          }
-          // Just record the paint timing, don't log response event here anymore
-          console.log("Paint timing recorded for", lastAnswer.questionId);
-        });
-      });
-    }
-  }, [messages, sessionId]);
 
   // Image attachment handlers
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -521,31 +423,23 @@ export function ChatInterface() {
     }
   };
 
-  // Core API communication function — routes to Becken chat backend
+  // Sends a query to the Becken crop-disease chat backend
   const sendMessageToApi = async (
     text: string,
     loadingMessageId: string,
     options?: { autoTts?: boolean; fileStoreId?: string; mimeType?: string },
   ): Promise<{ messageId: string; finalText: string | null }> => {
     const questionId = uuidv4();
-    markServerRequestStart(questionId);
-    await startTelemetry(sessionId, {
-      preferred_username: user?.username || "default-username",
-      email: user?.email || "default-email",
-    });
-    logQuestionEvent(questionId, sessionId, text);
-    endTelemetry();
-
     const currentSession = sessionId || createSession();
 
-    try {
-      updateMessage(loadingMessageId, {
-        isLoading: true,
-        isStreaming: false,
-        questionId,
-        questionText: text,
-      });
+    updateMessage(loadingMessageId, {
+      isLoading: true,
+      isStreaming: false,
+      questionId,
+      questionText: text,
+    });
 
+    try {
       const response = await apiService.sendBeckenQuery({
         queryText: text,
         sessionId: currentSession,
@@ -562,39 +456,26 @@ export function ChatInterface() {
           questionText: text,
           canRetry: false,
         });
-        await startTelemetry(sessionId, {
-          preferred_username: user?.username || "default-username",
-          email: user?.email || "default-email",
-        });
-        await endTelemetryWithWait();
-        delete window.__RESPONSE_TIMERS__[questionId];
         if (options?.autoTts) {
           playAudio(response.responseText, loadingMessageId);
         }
-        startSuggestionRefreshCycle(currentSession);
         return { messageId: loadingMessageId, finalText: response.responseText };
       } else {
         updateMessage(loadingMessageId, {
           text: "",
           isErrorMessage: true,
-          isStreaming: false,
           isLoading: false,
+          isStreaming: false,
           questionId,
           questionText: text,
           errorTranslationKey: "toast.apiEmptyResponse.description",
           canRetry: true,
           originalUserMessage: text,
         });
-        await startTelemetry(sessionId, {
-          preferred_username: user?.username || "default-username",
-          email: user?.email || "default-email",
-        });
-        logErrorEvent(questionId, sessionId, "Empty response from Becken");
-        await endTelemetry();
         return { messageId: loadingMessageId, finalText: null };
       }
     } catch (error) {
-      console.error("Error sending query to Becken:", error);
+      console.error("Becken error:", error);
       updateMessage(loadingMessageId, {
         text: "",
         isLoading: false,
@@ -604,16 +485,6 @@ export function ChatInterface() {
         originalUserMessage: text,
       });
       forceUIRefresh();
-      await startTelemetry(sessionId, {
-        preferred_username: user?.username || "default-username",
-        email: user?.email || "default-email",
-      });
-      logErrorEvent(
-        questionId,
-        sessionId,
-        "Becken error: " + (error instanceof Error ? error.message : String(error)),
-      );
-      await endTelemetry();
       return { messageId: loadingMessageId, finalText: null };
     }
   };
@@ -779,11 +650,6 @@ export function ChatInterface() {
     setFeedbackQuestionText(questionText);
     setFeedbackResponseText(responseText);
 
-    // Send telemetry for the like event
-    startTelemetry(sessionId, {
-      preferred_username: user?.username || "default-username",
-      email: user?.email || "default-email",
-    });
     logFeedbackEvent(
       message.questionId || messageId,
       sessionId,
@@ -792,9 +658,7 @@ export function ChatInterface() {
       message.questionText || "",
       message.text,
     );
-    endTelemetry();
 
-    // Send a generic feedback message
     toast({
       title: t("toast.feedbackThankYou.title") as string,
       description: t("toast.feedbackThankYou.description") as string,
@@ -810,10 +674,6 @@ export function ChatInterface() {
       description: t("toast.feedbackSubmitted.description") as string,
     });
 
-    startTelemetry(sessionId, {
-      preferred_username: user?.username || "default-username",
-      email: user?.email || "default-email",
-    });
     logFeedbackEvent(
       message.questionId || dislikedMessageId,
       sessionId,
@@ -822,7 +682,6 @@ export function ChatInterface() {
       message.questionText || "",
       message.text,
     );
-    endTelemetry();
     setShowFeedbackDialog(false);
     setFeedbackText("");
     setDislikedMessageId(null);
