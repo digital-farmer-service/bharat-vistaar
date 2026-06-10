@@ -7,7 +7,19 @@ export default defineConfig(({ mode }) => ({
   base: "./",
   server: {
     host: "::",
-    port: 8081,
+    port: 8082,
+    proxy: {
+      // dfs-personalization backend (Becken chat, auth token)
+      "/dfs-personalization": {
+        target: "http://localhost:8081",
+        changeOrigin: true,
+      },
+      // eGov filestore
+      "/filestore": {
+        target: "http://egov-filestore:8080",
+        changeOrigin: true,
+      },
+    },
   },
   plugins: [
     react(),
