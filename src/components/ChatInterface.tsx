@@ -32,17 +32,6 @@ import {
 import AutoResizeTextarea from "@/components/AutoResizeTextarea";
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "@/hooks/use-toast";
-import {
-  startTelemetry,
-  logQuestionEvent,
-  logResponseEvent,
-  endTelemetry,
-  endTelemetryWithWait,
-  logFeedbackEvent,
-  logErrorEvent,
-  markAnswerRendered,
-  initChatApiPerformanceObserver,
-} from "@/lib/telemetry";
 // Import audio utilities
 import {
   setupAudioVisualization,
@@ -54,9 +43,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useTts } from "@/hooks/use-tts";
 import { FeedbackForm } from "@/components/FeedbackForm";
-import { useAuth } from "@/contexts/AuthContext";
 import VoiceAssistantInline from "@/components/VoiceAssistantInline";
-import { markServerRequestStart } from "@/lib/telemetry";
 
 interface Message {
   id: string;
@@ -101,7 +88,6 @@ interface Window {
 
 export function ChatInterface() {
   const { language, t } = useLanguage();
-  const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isRecording, setIsRecording] = useState(false);
@@ -222,12 +208,8 @@ export function ChatInterface() {
     const newSessionId = uuidv4();
     setSessionId(newSessionId);
     apiService.setSessionId(newSessionId);
-    startTelemetry(newSessionId, {
-      preferred_username: user?.username || "default-username",
-      email: user?.email || "default-email",
-    });
     return newSessionId;
-  }, [user]);
+  }, []);
 
   // Helper function to update suggestion refresh interval (tweakable)
   const updateSuggestionRefreshInterval = (intervalMs: number) => {
@@ -389,42 +371,12 @@ export function ChatInterface() {
 
   // Cleanup suggestion refresh timer on unmount
   useEffect(() => {
-    // initChatApiPerformanceObserver();
     return () => {
       if (suggestionRefreshTimerRef.current) {
         clearInterval(suggestionRefreshTimerRef.current);
       }
     };
   }, []);
-
-  useEffect(() => {
-    const lastAnswer = [...messages]
-      .reverse()
-      .find(
-        (m) => !m.isUser && m.questionId && m.text && m.isStreaming === false,
-      );
-
-    if (lastAnswer) {
-      requestAnimationFrame(() => {
-        markAnswerRendered(lastAnswer.questionId!, () => {
-          // Call logResponseEvent after paint timing is recorded
-          const message = messages.find(
-            (m) => m.questionId === lastAnswer.questionId,
-          );
-          if (message && message.questionText) {
-            logResponseEvent(
-              lastAnswer.questionId!,
-              sessionId,
-              message.questionText,
-              lastAnswer.text,
-            );
-          }
-          // Just record the paint timing, don't log response event here anymore
-          console.log("Paint timing recorded for", lastAnswer.questionId);
-        });
-      });
-    }
-  }, [messages, sessionId]);
 
   // Handle text message sending
   const handleSendMessage = async () => {
@@ -489,13 +441,6 @@ export function ChatInterface() {
     sourceLang = detectedLanguage.code;
     console.log(sourceLang);
     const questionId = uuidv4();
-    markServerRequestStart(questionId);
-    await startTelemetry(sessionId, {
-      preferred_username: user?.username || "default-username",
-      email: user?.email || "default-email",
-    });
-    logQuestionEvent(questionId, sessionId, text);
-    endTelemetry();
     // Use the current sessionId or create a new UUID if needed
     const currentSession = sessionId || createSession();
 
@@ -555,15 +500,6 @@ export function ChatInterface() {
           questionText: text,
           canRetry: false,
         });
-        await startTelemetry(sessionId, {
-          preferred_username: user?.username || "default-username",
-          email: user?.email || "default-email",
-        });
-        // logResponseEvent will be called from useEffect callback after paint timing is recorded
-        // ← ADD THIS LINE:
-        // logResponseEvent(questionId, sessionId, text, response.response);
-        await endTelemetryWithWait();
-        delete window.__RESPONSE_TIMERS__[questionId];
         if (options?.autoTts) {
           // Auto play TTS for the final response
           playAudio(response.response, loadingMessageId);
@@ -584,12 +520,6 @@ export function ChatInterface() {
           canRetry: true,
           originalUserMessage: text,
         });
-        await startTelemetry(sessionId, {
-          preferred_username: user?.username || "default-username",
-          email: user?.email || "default-email",
-        });
-        logErrorEvent(questionId, sessionId, "Empty response from API");
-        await endTelemetry();
         return { messageId: loadingMessageId, finalText: null };
       }
     } catch (error) {
@@ -610,17 +540,6 @@ export function ChatInterface() {
       // Force UI refresh for error messages
       forceUIRefresh();
 
-      await startTelemetry(sessionId, {
-        preferred_username: user?.username || "default-username",
-        email: user?.email || "default-email",
-      });
-      logErrorEvent(
-        questionId,
-        sessionId,
-        "API error: " +
-          (error instanceof Error ? error.message : String(error)),
-      );
-      await endTelemetry();
       return { messageId: loadingMessageId, finalText: null };
     }
   };
@@ -786,21 +705,6 @@ export function ChatInterface() {
     setFeedbackQuestionText(questionText);
     setFeedbackResponseText(responseText);
 
-    // Send telemetry for the like event
-    startTelemetry(sessionId, {
-      preferred_username: user?.username || "default-username",
-      email: user?.email || "default-email",
-    });
-    logFeedbackEvent(
-      message.questionId || messageId,
-      sessionId,
-      "Liked the response",
-      "like",
-      message.questionText || "",
-      message.text,
-    );
-    endTelemetry();
-
     // Send a generic feedback message
     toast({
       title: t("toast.feedbackThankYou.title") as string,
@@ -817,19 +721,6 @@ export function ChatInterface() {
       description: t("toast.feedbackSubmitted.description") as string,
     });
 
-    startTelemetry(sessionId, {
-      preferred_username: user?.username || "default-username",
-      email: user?.email || "default-email",
-    });
-    logFeedbackEvent(
-      message.questionId || dislikedMessageId,
-      sessionId,
-      feedbackText,
-      "dislike",
-      message.questionText || "",
-      message.text,
-    );
-    endTelemetry();
     setShowFeedbackDialog(false);
     setFeedbackText("");
     setDislikedMessageId(null);

@@ -1,8 +1,6 @@
-import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse, InternalAxiosRequestConfig } from "axios";
-import { v4 as uuidv4 } from "uuid";
+import axios, { AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from "axios";
 import {
   retryWithBackoff,
-  DEFAULT_RETRY_CONFIG,
   isRetryableError,
   type RetryConfig,
 } from "./retry-utils";
@@ -43,28 +41,20 @@ interface TTSResponse {
   session_id: string;
 }
 
-interface AuthResponse {
-  token: string;
+// Response shape from the backend token endpoint:
+//   POST <VITE_BACKEND_AUTH_URL>?tenantId=br  {}  ->  { token, expiresAt (ISO), cached }
+interface AuthTokenResponse {
+  token?: string;
+  expiresAt?: string;
+  cached?: boolean;
 }
 
-// Constants
+// localStorage key holding { token, expiry(ms) }
 const JWT_STORAGE_KEY = "auth_jwt";
-const TOKEN_REFRESH_THRESHOLD_MS = 5 * 60 * 1000; // refresh when within 5 min of expiry
-
-/**
- * Decouples the backend auth call from ApiService.
- * Change only this config object to switch endpoint or response shape.
- */
-export interface BackendAuthAdapter {
-  /** Full URL of the backend auth endpoint */
-  endpoint: string;
-  /** Builds the POST body. Omit or return {} for an empty body. */
-  buildRequestBody?: () => Record<string, unknown>;
-  /** Extracts the raw token string from the response data */
-  extractToken: (responseData: unknown) => string;
-  /** Skip RS256 JWT validation (set true for non-JWT opaque tokens) */
-  skipJwtValidation?: boolean;
-}
+// Refresh a bit before the server-declared expiry to avoid racing the boundary.
+const TOKEN_EXPIRY_BUFFER_MS = 60 * 1000;
+// Fallback lifetime when the response omits/garbles expiresAt.
+const TOKEN_FALLBACK_LIFETIME_MS = 10 * 60 * 1000;
 
 class ApiService {
   private apiUrl: string = window.__ENV__?.VITE_API_URL || "https://dev-vistaar.da.gov.in";
@@ -72,14 +62,13 @@ class ApiService {
   private currentSessionId: string | null = null;
   private axiosInstance: AxiosInstance;
   private authToken: string | null = null;
+  private tokenExpiresAt: number | null = null; // epoch ms
   private retryConfig: RetryConfig = API_RETRY_CONFIG;
-  private backendAuthAdapter: BackendAuthAdapter | null = null;
-  private isRefreshingToken = false;
-  private isRefreshingFor403 = false;
-  private pendingRequests403: Array<(token: string | null) => void> = [];
+  // Single shared in-flight token fetch so concurrent callers coalesce to one request.
+  private tokenFetchInFlight: Promise<string> | null = null;
 
   constructor() {
-    this.authToken = this.getAuthToken();
+    this.restoreToken();
     this.axiosInstance = axios.create({
       baseURL: this.apiUrl,
       headers: {
@@ -88,156 +77,156 @@ class ApiService {
       },
     });
 
-    // 403 interceptor: refresh token once and retry the original request.
-    // Note: native fetch() paths (streaming) bypass this interceptor.
+    // 401/403 interceptor: fetch a fresh token once and retry the original request.
+    // Native fetch() paths (streaming) handle their own single retry inline.
     this.axiosInstance.interceptors.response.use(
       (response) => response,
       async (error) => {
-        const originalRequest = error.config as InternalAxiosRequestConfig & { _retried?: boolean };
+        const originalRequest = error.config as
+          | (InternalAxiosRequestConfig & { _retried?: boolean })
+          | undefined;
+        const status = error.response?.status;
 
-        if (error.response?.status !== 403 || originalRequest._retried) {
+        if (
+          !originalRequest ||
+          (status !== 401 && status !== 403) ||
+          originalRequest._retried
+        ) {
           return Promise.reject(error);
         }
         originalRequest._retried = true;
 
-        if (this.isRefreshingFor403) {
-          return new Promise((resolve, reject) => {
-            this.pendingRequests403.push((newToken) => {
-              if (!newToken) { reject(error); return; }
-              originalRequest.headers["Authorization"] = `Bearer ${newToken}`;
-              resolve(this.axiosInstance(originalRequest));
-            });
-          });
-        }
-
-        this.isRefreshingFor403 = true;
         try {
           const newToken = await this.fetchAuthToken();
-          this.authToken = newToken;
-          this.axiosInstance.defaults.headers.common["Authorization"] = `Bearer ${newToken}`;
-          // Let AuthContext persist to localStorage
-          window.dispatchEvent(new CustomEvent("auth:token-refreshed", { detail: { token: newToken } }));
-          this.pendingRequests403.forEach((cb) => cb(newToken));
-          this.pendingRequests403 = [];
           originalRequest.headers["Authorization"] = `Bearer ${newToken}`;
           return this.axiosInstance(originalRequest);
         } catch (refreshError) {
-          this.pendingRequests403.forEach((cb) => cb(null));
-          this.pendingRequests403 = [];
-          this.redirectToErrorPage();
           return Promise.reject(refreshError);
-        } finally {
-          this.isRefreshingFor403 = false;
         }
       }
     );
   }
 
-  private getAuthToken(): string | null {
+  // ---- Token lifecycle -----------------------------------------------------
+
+  /** Backend auth endpoint. Warns (no silent fallback) if misconfigured. */
+  private authEndpoint(): string {
+    const url = window.__ENV__?.VITE_BACKEND_AUTH_URL;
+    if (!url) {
+      console.warn(
+        "VITE_BACKEND_AUTH_URL is not configured; auth token requests will fail. " +
+          "Set window.__ENV__.VITE_BACKEND_AUTH_URL (env-config.js)."
+      );
+    }
+    return url as string;
+  }
+
+  private persistToken(token: string, expiryMs: number): void {
     try {
-      const tokenData = localStorage.getItem(JWT_STORAGE_KEY);
-      if (!tokenData) return null;
-
-      const parsedData = JSON.parse(tokenData);
-      const now = new Date().getTime();
-
-      // Hard expiry — token is dead
-      if (now > parsedData.expiry) {
-        localStorage.removeItem(JWT_STORAGE_KEY);
-        return null;
-      }
-
-      // Near-expiry: signal background refresh but still return the valid token
-      if (now > parsedData.expiry - TOKEN_REFRESH_THRESHOLD_MS) {
-        this.scheduleProactiveRefresh();
-      }
-
-      return parsedData.token;
+      localStorage.setItem(
+        JWT_STORAGE_KEY,
+        JSON.stringify({ token, expiry: expiryMs })
+      );
     } catch (error) {
-      console.error("Error retrieving JWT for API calls:", error);
-      return null;
+      console.error("Error persisting auth token:", error);
     }
   }
 
-  private scheduleProactiveRefresh(): void {
-    if (this.isRefreshingToken) return; // debounce concurrent signals
-    this.isRefreshingToken = true;
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("auth:proactive-refresh"));
+  private restoreToken(): void {
+    try {
+      const raw = localStorage.getItem(JWT_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { token?: string; expiry?: number };
+      if (parsed?.token && typeof parsed.expiry === "number") {
+        this.authToken = parsed.token;
+        this.tokenExpiresAt = parsed.expiry;
+      }
+    } catch (error) {
+      console.error("Error restoring auth token:", error);
     }
-  }
-
-  private refreshAuthToken(): void {
-    this.authToken = this.getAuthToken();
-    if (this.authToken) {
-      this.axiosInstance.defaults.headers.common[
-        "Authorization"
-      ] = `Bearer ${this.authToken}`;
-    } else {
-      this.axiosInstance.defaults.headers.common["Authorization"] = "NA";
-      this.redirectToErrorPage();
-    }
-  }
-
-  private redirectToErrorPage(): void {
-    // Check if we're in a browser environment and not already on error page
-    if (
-      typeof window !== "undefined" &&
-      !window.location.pathname.includes("/error")
-    ) {
-      window.location.href = "/error?reason=auth";
-    }
-  }
-
-  updateAuthToken(): void {
-    this.refreshAuthToken();
-  }
-
-  getCurrentAuthToken(): string | null {
-    return this.getAuthToken();
-  }
-
-  private getAuthHeaders(): Record<string, string> {
-    // Always get fresh token before generating headers
-    this.refreshAuthToken();
-    return {
-      Authorization: this.authToken ? `Bearer ${this.authToken}` : "NA",
-    };
-  }
-
-  private validateAuth(): boolean {
-    if (!this.authToken) {
-      this.redirectToErrorPage();
-      return false;
-    }
-    return true;
   }
 
   /**
-   * Update retry configuration
+   * Fetch a fresh token from the backend and store it.
+   * Single-flight: concurrent callers share one network request.
    */
+  async fetchAuthToken(): Promise<string> {
+    if (this.tokenFetchInFlight) return this.tokenFetchInFlight;
+
+    const inFlight = (async (): Promise<string> => {
+      // Bare axios (not axiosInstance) — no bearer on the auth call, avoids the
+      // 401/403 interceptor recursing into itself.
+      const response = await axios.post(this.authEndpoint(), {}, {
+        headers: { "Content-Type": "application/json" },
+        params: { tenantId: "br" }, // DIGIT tenant — required by gateway routing/authz
+      });
+
+      const data = (response.data ?? {}) as AuthTokenResponse;
+      const token = data.token;
+      if (!token) {
+        throw new Error("Auth token endpoint returned no token");
+      }
+
+      const parsed = data.expiresAt ? Date.parse(data.expiresAt) : NaN;
+      const expiryMs = Number.isNaN(parsed)
+        ? Date.now() + TOKEN_FALLBACK_LIFETIME_MS
+        : parsed;
+
+      this.authToken = token;
+      this.tokenExpiresAt = expiryMs;
+      this.persistToken(token, expiryMs);
+      this.axiosInstance.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+      return token;
+    })();
+
+    this.tokenFetchInFlight = inFlight;
+    try {
+      return await inFlight;
+    } finally {
+      this.tokenFetchInFlight = null;
+    }
+  }
+
+  /** Return a usable token, refreshing if missing or within the expiry buffer. */
+  async getValidToken(): Promise<string> {
+    if (
+      this.authToken &&
+      this.tokenExpiresAt &&
+      Date.now() < this.tokenExpiresAt - TOKEN_EXPIRY_BUFFER_MS
+    ) {
+      return this.authToken;
+    }
+    return this.fetchAuthToken();
+  }
+
+  /** Ensure a token exists (used by AuthContext on mount). */
+  async ensureToken(): Promise<void> {
+    await this.getValidToken();
+  }
+
+  /** Drop all token state. */
+  clearToken(): void {
+    this.authToken = null;
+    this.tokenExpiresAt = null;
+    try {
+      localStorage.removeItem(JWT_STORAGE_KEY);
+    } catch (error) {
+      console.error("Error clearing auth token:", error);
+    }
+    this.axiosInstance.defaults.headers.common["Authorization"] = "NA";
+  }
+
+  // ---- Retry config --------------------------------------------------------
+
   setRetryConfig(config: Partial<RetryConfig>): void {
     this.retryConfig = { ...this.retryConfig, ...config };
   }
 
-  /**
-   * Get current retry configuration
-   */
   getRetryConfig(): RetryConfig {
     return { ...this.retryConfig };
   }
 
-  setBackendAuthAdapter(adapter: BackendAuthAdapter): void {
-    this.backendAuthAdapter = adapter;
-  }
-
-  getBackendAuthAdapter(): BackendAuthAdapter | null {
-    return this.backendAuthAdapter;
-  }
-
-  resetRefreshFlag(): void {
-    this.isRefreshingToken = false;
-  }
+  // ---- Chat / TTS ----------------------------------------------------------
 
   async sendUserQuery(
     msg: string,
@@ -248,10 +237,7 @@ class ApiService {
     onRetry?: (attempt: number, error: Error) => void
   ): Promise<ChatResponse> {
     const executeQuery = async (): Promise<ChatResponse> => {
-      this.refreshAuthToken();
-      if (!this.validateAuth()) {
-        return { response: "Authentication error", status: "error" };
-      }
+      const token = await this.getValidToken();
 
       const params = {
         session_id: session,
@@ -263,35 +249,22 @@ class ApiService {
         }),
       };
 
-      const headers = this.getAuthHeaders();
-
       if (onStreamData) {
-        // 🟢 Mark network start
-        if (window.__RESPONSE_TIMERS__) {
-          // Need to know the questionId - it should be passed from ChatInterface
-          // For now, get latest pending request
-          const latestQid = Object.keys(window.__RESPONSE_TIMERS__)
-            .reverse()
-            .find(
-              (qid) =>
-                window.__RESPONSE_TIMERS__![qid]?.startTime &&
-                !window.__RESPONSE_TIMERS__![qid]?.networkEndTime
-            );
+        // Streaming response via native fetch (axios can't stream in the browser).
+        const url = `${this.apiUrl}/api/chat/?${new URLSearchParams(params)}`;
+        let response = await fetch(url, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${token}` },
+        });
 
-          if (latestQid) {
-            window.__RESPONSE_TIMERS__![latestQid].networkStartTime =
-              performance.now();
-          }
-        }
-
-        // Handle streaming response
-        const response = await fetch(
-          `${this.apiUrl}/api/chat/?${new URLSearchParams(params)}`,
-          {
+        // One fresh-token retry on auth failure.
+        if (!response.ok && (response.status === 401 || response.status === 403)) {
+          const freshToken = await this.fetchAuthToken();
+          response = await fetch(url, {
             method: "GET",
-            headers: headers,
-          }
-        );
+            headers: { Authorization: `Bearer ${freshToken}` },
+          });
+        }
 
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
@@ -314,28 +287,12 @@ class ApiService {
           onStreamData(chunk);
         }
 
-        // 🟢 Mark network end
-        if (window.__RESPONSE_TIMERS__) {
-          const latestQid = Object.keys(window.__RESPONSE_TIMERS__)
-            .reverse()
-            .find(
-              (qid) =>
-                window.__RESPONSE_TIMERS__![qid]?.networkStartTime &&
-                !window.__RESPONSE_TIMERS__![qid]?.networkEndTime
-            );
-
-          if (latestQid) {
-            window.__RESPONSE_TIMERS__![latestQid].networkEndTime =
-              performance.now();
-          }
-        }
-
         return { response: fullResponse, status: "success" };
       } else {
-        // Regular non-streaming request
+        // Regular non-streaming request (interceptor handles 401/403 retry).
         const config = {
           params,
-          headers: this.getAuthHeaders(),
+          headers: { Authorization: `Bearer ${token}` },
         };
         const response = await this.axiosInstance.get("/api/chat/", config);
         return response.data;
@@ -343,7 +300,12 @@ class ApiService {
     };
 
     try {
-      return await retryWithBackoff(executeQuery, this.retryConfig, onRetry);
+      return await retryWithBackoff(
+        executeQuery,
+        this.retryConfig,
+        onRetry,
+        isRetryableError
+      );
     } catch (error) {
       console.error("Error sending user query after retries:", error);
       throw error;
@@ -355,10 +317,7 @@ class ApiService {
     targetLang: string = "hi"
   ): Promise<SuggestionItem[]> {
     const executeSuggestions = async (): Promise<SuggestionItem[]> => {
-      this.refreshAuthToken();
-      if (!this.validateAuth()) {
-        return [];
-      }
+      const token = await this.getValidToken();
 
       const params = {
         session_id: session,
@@ -367,7 +326,7 @@ class ApiService {
 
       const config = {
         params,
-        headers: this.getAuthHeaders(),
+        headers: { Authorization: `Bearer ${token}` },
       };
 
       const response = await this.axiosInstance.get("api/suggest/", config);
@@ -377,7 +336,12 @@ class ApiService {
     };
 
     try {
-      return await retryWithBackoff(executeSuggestions, this.retryConfig);
+      return await retryWithBackoff(
+        executeSuggestions,
+        this.retryConfig,
+        undefined,
+        isRetryableError
+      );
     } catch (error) {
       console.error("Error getting suggestions after retries:", error);
       throw error;
@@ -391,10 +355,7 @@ class ApiService {
     lang_code: string
   ): Promise<TranscriptionResponse> {
     try {
-      this.refreshAuthToken();
-      if (!this.validateAuth()) {
-        return { text: "", lang_code: "", status: "error" };
-      }
+      const token = await this.getValidToken();
 
       const payload = {
         audio_content: audioBase64,
@@ -403,9 +364,8 @@ class ApiService {
         lang_code: lang_code,
       };
 
-      // Explicitly set headers for this request
       const config = {
-        headers: this.getAuthHeaders(),
+        headers: { Authorization: `Bearer ${token}` },
       };
 
       const response = await this.axiosInstance.post(
@@ -420,18 +380,15 @@ class ApiService {
     }
   }
 
-  getTranscript(
+  async getTranscript(
     sessionId: string,
     text: string,
     targetLang: string
   ): Promise<AxiosResponse<TTSResponse>> {
-    this.refreshAuthToken();
-    if (!this.validateAuth()) {
-      return Promise.reject(new Error("Authentication required"));
-    }
+    const token = await this.getValidToken();
 
     const config = {
-      headers: this.getAuthHeaders(),
+      headers: { Authorization: `Bearer ${token}` },
     };
 
     return this.axiosInstance.post(
@@ -452,27 +409,31 @@ class ApiService {
     targetLang: string,
     onBytes: (bytes: Uint8Array) => void
   ): Promise<Uint8Array> {
-    // Ensure we have a fresh auth token and validate before making the call
-    this.refreshAuthToken();
-    if (!this.validateAuth()) {
-      return new Uint8Array();
-    }
+    const token = await this.getValidToken();
 
     const payload = {
       session_id: sessionId,
       text: text,
       target_lang: targetLang,
     };
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      ...this.getAuthHeaders(),
-    };
+    const doFetch = (bearer: string) =>
+      fetch(`${this.apiUrl}/api/tts/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${bearer}`,
+        },
+        body: JSON.stringify(payload),
+      });
 
-    const response = await fetch(`${this.apiUrl}/api/tts/`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(payload),
-    });
+    let response = await doFetch(token);
+
+    // One fresh-token retry on auth failure.
+    if (!response.ok && (response.status === 401 || response.status === 403)) {
+      const freshToken = await this.fetchAuthToken();
+      response = await doFetch(freshToken);
+    }
+
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
@@ -609,23 +570,6 @@ class ApiService {
 
   getSessionId(): string | null {
     return this.currentSessionId;
-  }
-
-  async fetchAuthToken(): Promise<string> {
-    if (!this.backendAuthAdapter) {
-      throw new Error("BackendAuthAdapter not configured. Call setBackendAuthAdapter() first.");
-    }
-    const { endpoint, buildRequestBody, extractToken } = this.backendAuthAdapter;
-    const body = buildRequestBody ? buildRequestBody() : {};
-
-    // Use bare axios (not axiosInstance) — no auth header on auth call, avoids 403 interceptor loop
-    const response = await axios.post(endpoint, body, {
-      headers: { "Content-Type": "application/json" },
-    });
-
-    const token = extractToken(response.data);
-    if (!token) throw new Error("BackendAuthAdapter.extractToken returned empty value");
-    return token;
   }
 }
 

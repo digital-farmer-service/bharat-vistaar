@@ -25,3 +25,6 @@ dist-ssr
 package-lock.json
 
 **/.agent/
+
+# Local runtime env config (generated at container start by docker-entrypoint.sh)
+public/env-config.js

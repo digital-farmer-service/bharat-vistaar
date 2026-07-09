@@ -7,7 +7,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "./LanguageProvider";
 import { ChevronDown } from "lucide-react";
-import { trackLanguageChange } from "@/lib/google-analytics";
 
 export function LanguageSelector() {
   const { language, setLanguage, t } = useLanguage();
@@ -52,7 +51,6 @@ export function LanguageSelector() {
           className={getActiveClass("en")}
           onClick={() => {
             setLanguage("en");
-            trackLanguageChange("en");
           }}
         >
           English
@@ -61,7 +59,6 @@ export function LanguageSelector() {
           className={getActiveClass("hi")}
           onClick={() => {
             setLanguage("hi");
-            trackLanguageChange("hi");
           }}
         >
           हिंदी
