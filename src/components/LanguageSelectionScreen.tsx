@@ -2,7 +2,6 @@ import { useLanguage } from "@/components/LanguageProvider";
 import type { Language } from "@/components/LanguageProvider";
 import { Button } from "@/components/ui/button";
 import { Volume2 } from "lucide-react";
-import { trackLanguageChange } from "@/lib/google-analytics";
 
 interface LanguageOption {
   code: Language;
@@ -42,7 +41,6 @@ export function LanguageSelectionScreen({ onLanguageSelected }: { onLanguageSele
   
   const handleLanguageSelect = (languageCode: Language) => {
     setLanguage(languageCode);
-    trackLanguageChange(languageCode);
     onLanguageSelected();
   };
 

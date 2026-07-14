@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { LanguageProvider, useLanguage } from "@/components/LanguageProvider";
 import { AudioPlayerProvider } from "@/components/AudioPlayer";
@@ -15,7 +15,6 @@ import ErrorPage from "./pages/ErrorPage";
 import { useAuth } from "./contexts/AuthContext";
 import PrivateRoute from "./components/PrivateRoute";
 import { useEffect } from "react";
-import { initGoogleAnalytics, trackPageView } from "./lib/google-analytics";
 
 const queryClient = new QueryClient();
 
@@ -26,23 +25,6 @@ const TitleUpdater = () => {
   useEffect(() => {
     document.title = t("appTitle") as string;
   }, [t]);
-
-  return null;
-};
-
-// Component to track page views with Google Analytics
-const GoogleAnalyticsTracker = () => {
-  const location = useLocation();
-
-  useEffect(() => {
-    // Initialize Google Analytics on mount
-    initGoogleAnalytics();
-  }, []);
-
-  useEffect(() => {
-    // Track page view on route change
-    trackPageView(location.pathname + location.search, document.title);
-  }, [location]);
 
   return null;
 };
@@ -65,7 +47,6 @@ const App = () => {
               <Toaster />
               <Sonner />
               <BrowserRouter basename="/bihar-krishi">
-                <GoogleAnalyticsTracker />
                 <Routes>
                   <Route path="/" element={<LandingPage />} />
                   <Route path="/login" element={<LoginPage />} />

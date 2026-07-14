@@ -38,12 +38,15 @@ const calculateDelay = (
  * @param fn - The async function to retry
  * @param config - Retry configuration
  * @param onRetry - Optional callback when retry is attempted
+ * @param shouldRetry - Optional predicate deciding whether an error is retryable
+ *                      (defaults to always-retry to preserve prior behavior)
  * @returns The result of the function
  */
 export async function retryWithBackoff<T>(
   fn: () => Promise<T>,
   config: RetryConfig = DEFAULT_RETRY_CONFIG,
-  onRetry?: (attempt: number, error: Error) => void
+  onRetry?: (attempt: number, error: Error) => void,
+  shouldRetry: (error: unknown) => boolean = () => true
 ): Promise<T> {
   let lastError: Error;
 
@@ -52,9 +55,9 @@ export async function retryWithBackoff<T>(
       return await fn();
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      
-      // If this was the last attempt, throw the error
-      if (attempt === config.maxAttempts) {
+
+      // If this was the last attempt or the error isn't retryable, throw it
+      if (attempt === config.maxAttempts || !shouldRetry(lastError)) {
         throw lastError;
       }
 
